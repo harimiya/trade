@@ -3,21 +3,25 @@ name: Daily Stock Signal
 on:
   schedule:
     - cron: '0 0 * * *' # 毎日日本時間 9:00 (UTC 0:00) に実行
-  workflow_dispatch: # 手動実行ボタンも追加
+  workflow_dispatch: # 手動実行ボタン
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4 # v3 から v4 に変更
+        
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # v4 から v5 に変更
         with:
-          python-version: '3.9'
+          python-version: '3.11' # 少し新しめのPythonにしておくと安心です
+          
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          
       - name: Run script
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} # GitHubのSecretから取得
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py
