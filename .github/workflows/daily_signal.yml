@@ -17,13 +17,18 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install Japanese Fonts
+        # Ubuntuサーバーに日本語フォントをインストールします
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
       - name: Install dependencies
         run: |
           pip install yfinance numpy pandas matplotlib scipy
 
       - name: Run strategy
         run: |
-          # 実行ファイル名は japan_us_leadlag_strategy.py とします
           python japan_us_leadlag_strategy.py
 
       - name: Post to Discord
