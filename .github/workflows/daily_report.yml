@@ -10,18 +10,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4 # v3 から v4 に変更
-        
+        uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v5 # v4 から v5 に変更
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # 少し新しめのPythonにしておくと安心です
-          
+          python-version: '3.11'
+
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          
-      - name: Run script
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python main.py
+          pip install yfinance numpy pandas matplotlib scipy
+
+      - name: Run strategy
+        # ここで Python ファイル名を正確に指定します
+        run: python japan_us_leadlag_strategy.py
+
+      - name: Post Dashboard to Discord
+        # 生成された画像(leadlag_signal_dashboard.png)をWebhook経由で送信します
+        if: always() # 計算が成功した場合にのみ実行
+        run: |
+          curl -X POST -F "file=@leadlag_signal_dashboard.png" \
+               -F "payload_json={\"content\": \"📈 本日の日米業種リードラグ・シグナルを更新しました\"}" \
+               ${{ secrets.DISCORD_WEBHOOK_URL }}
