@@ -32,6 +32,7 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           if [ -f "discord_msg.txt" ]; then
+            # 環境変数経由でメッセージを渡して文字化けと改行崩れを防止
             MESSAGE=$(cat discord_msg.txt)
             curl -X POST -H "Content-Type: multipart/form-data" \
                  -F "content=$MESSAGE" \
@@ -39,10 +40,10 @@ jobs:
                  "$DISCORD_WEBHOOK"
           fi
 
-      - name: Commit and push
+      - name: Commit and push if changed
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add leadlag_signal_dashboard.png
-          git commit -m "Update dashboard [skip ci]" || exit 0
+          git commit -m "Update daily dashboard [skip ci]" || exit 0
           git push
