@@ -2,8 +2,8 @@ name: Daily Stock Signal
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 毎日日本時間 9:00 (UTC 0:00) に実行
-  workflow_dispatch: # 手動実行ボタン
+    - cron: '0 0 * * *' # 毎日日本時間 9:00 (UTC 0:00)
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,27 +19,22 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install yfinance numpy pandas matplotlib scipy
 
       - name: Run strategy
-        # 1. スクリプトを実行
-        # 2. 終了後にファイル一覧を表示して画像の存在を確認
         run: |
+          # 確実に japan_us_leadlag_strategy.py という名前で実行
           python japan_us_leadlag_strategy.py
-          echo "--- Generated Files ---"
-          ls -lh *.png || echo "No PNG files found."
+          ls -R # 生成されたファイルを確認
 
-      - name: Post Dashboard to Discord
-        # 前のステップが成功した場合のみ実行
-        if: success()
+      - name: Post to Discord
+        if: always()
         run: |
           if [ -f "leadlag_signal_dashboard.png" ]; then
-            curl -X POST \
-              -F "file=@./leadlag_signal_dashboard.png" \
-              -F "payload_json={\"content\": \"📈 **日米業種リードラグ・シグナル更新**\n生成日: $(date +'%Y-%m-%d')\"}" \
-              ${{ secrets.DISCORD_WEBHOOK_URL }}
+            curl -X POST -F "file=@leadlag_signal_dashboard.png" \
+                 -F "payload_json={\"content\": \"📈 シグナルを更新しました\"}" \
+                 ${{ secrets.DISCORD_WEBHOOK_URL }}
           else
-            echo "Error: leadlag_signal_dashboard.png not found."
+            echo "Error: Image not found. Check Python logs."
             exit 1
           fi
