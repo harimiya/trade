@@ -11,21 +11,20 @@ import pandas as pd
 
 # ── 日本語フォント設定 ──────────────────────
 def _setup_japanese_font():
-    system = platform.system()
-    candidates = []
-    if system == 'Windows':
-        candidates = ['Yu Gothic', 'Meiryo']
-    elif system == 'Darwin':
-        candidates = ['Hiragino Sans']
-    else:
-        # Linux(GitHub Actions)環境向けのフォント設定
-        candidates = ['Noto Sans CJK JP', 'DejaVu Sans']
-
-    available = {f.name for f in fm.fontManager.ttflist}
-    for font in candidates:
-        if font in available:
-            matplotlib.rcParams['font.family'] = font
+    """GitHub Actions環境でもエラーにならないよう、フォント設定を簡略化"""
+    import matplotlib.pyplot as plt
+    
+    # 既存のフォントリストから使えるものを探す
+    system_fonts = [f.name for f in fm.fontManager.ttflist]
+    
+    # Ubuntu(Actions)で標準的なフォントを指定
+    for f in ['DejaVu Sans', 'Liberation Sans', 'Arial']:
+        if f in system_fonts:
+            plt.rcParams['font.family'] = f
             break
+            
+    plt.rcParams['axes.unicode_minus'] = False
+    return "Fallback"
     matplotlib.rcParams['axes.unicode_minus'] = False
 
 _setup_japanese_font()
