@@ -2,8 +2,9 @@ name: Lead-Lag Strategy Daily Run
 
 on:
   schedule:
-    - cron: '0 1 * * *'
-  workflow_dispatch:
+    # 日本時間 7:30 (JST) = 協定世界時 22:30 (UTC)
+    - cron: '30 22 * * *'
+  workflow_dispatch: # 手動実行ボタンも残しておきます
 
 jobs:
   build:
@@ -20,6 +21,7 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 日本語フォントのインストール
       - name: Install Japanese Fonts
         run: |
           sudo apt-get update
