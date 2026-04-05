@@ -38,7 +38,6 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           if [ -f "discord_msg.txt" ]; then
-            # メッセージをコードブロック（```）で囲むと等幅フォントになり、フォーマットが綺麗に保たれます
             MESSAGE=$(cat discord_msg.txt)
             curl -X POST -H "Content-Type: multipart/form-data" \
                  -F "content=\`\`\`$MESSAGE\`\`\`" \
