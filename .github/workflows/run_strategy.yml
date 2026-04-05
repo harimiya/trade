@@ -22,37 +22,27 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install yfinance numpy pandas matplotlib
 
       - name: Run strategy script
         run: python japan_us_leadlag_strategy.py
 
-      - name: Check for generated image
-        id: check_file
+      - name: Send Discord Notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          if [ -f "leadlag_signal_dashboard.png" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
+          if [ -f "discord_msg.txt" ]; then
+            MESSAGE=$(cat discord_msg.txt)
+            curl -X POST -H "Content-Type: multipart/form-data" \
+                 -F "content=$MESSAGE" \
+                 -F "file=@leadlag_signal_dashboard.png" \
+                 "$DISCORD_WEBHOOK"
           fi
 
-      # Discordへの通知ステップを追加
-      - name: Send Discord Notification
-        if: steps.check_file.outputs.exists == 'true'
-        env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
-        run: |
-          curl -H "Content-Type: multipart/form-data" \
-               -F "content=🚀 **日米リードラグ投資戦略レポート**\n生成が完了しました。最新のシグナルを確認してください。" \
-               -F "file=@leadlag_signal_dashboard.png" \
-               $WEBHOOK_URL
-
-      - name: Commit and push if changed
-        if: steps.check_file.outputs.exists == 'true'
+      - name: Commit and push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add leadlag_signal_dashboard.png
-          git commit -m "Update daily strategy dashboard [skip ci]" || exit 0
+          git commit -m "Update dashboard [skip ci]" || exit 0
           git push
