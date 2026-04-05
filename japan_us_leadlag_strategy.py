@@ -1,43 +1,82 @@
-import matplotlib
-# GUIのない環境(GitHub Actions)でのエラー防止
-matplotlib.use('Agg') 
-
-import warnings
-warnings.filterwarnings('ignore')
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
-import platform, os, time
-import numpy as np
 import pandas as pd
 import yfinance as yf
+import numpy as np
+from datetime import datetime, timedelta
 
-# ── 日本語フォント設定 ──────────────────────
-def _setup_japanese_font():
-    system = platform.system()
-    font_path = None
-    if system == 'Linux':
-        paths = [
-            '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-            '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
-            '/usr/share/fonts/fonts-noto-cjk/NotoSansCJK-Regular.ttc'
-        ]
-        for p in paths:
-            if os.path.exists(p):
-                font_path = p
-                break
-    if font_path:
-        prop = fm.FontProperties(fname=font_path)
-        matplotlib.rcParams['font.family'] = prop.get_name()
-    elif system == 'Windows':
-        matplotlib.rcParams['font.family'] = 'MS Gothic'
-    elif system == 'Darwin':
-        matplotlib.rcParams['font.family'] = 'Hiragino Sans'
-    matplotlib.rcParams['axes.unicode_minus'] = False
+def get_data():
+    print("Fetching data from Yahoo Finance...")
+    # 米国セクターETF (代表例)
+    us_tickers = ['XLK', 'XLV', 'XLF', 'XLY', 'XLP', 'XLI', 'XLU', 'XLE', 'XLB', 'XLRE']
+    # 日本市場 (日経225先物代わりの1321、またはETF)
+    jp_tickers = ['1321.T']
+    
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=60) # 余裕を持って60日分
 
-_setup_japanese_font()
+    # threads=False にすることで SQLite のロック競合 (database is locked) を回避します
+    try:
+        p_u = yf.download(us_tickers, start=start_date, end=end_date, interval='1d', threads=False)['Adj Close']
+        p_j = yf.download(jp_tickers, start=start_date, end=end_date, interval='1d', threads=False)['Adj Close']
+        return p_u, p_j
+    except Exception as e:
+        print(f"Download Error: {e}")
+        return pd.DataFrame(), pd.DataFrame()
 
-# ── 定義 ──────────────────────
-US_TICKERS = ['XLB','XLC','XLE','XLF','XLI','XLK','XLP','XLRE','XLU','XLV','XLY']
-US_LABELS = {'XLB':'素材','XLC':'通信','XLE':'エネルギー','XLF':'金融','XLI':'産業','XLK':'IT','XLP':'生活必需品','XLRE':'不動産','XLU':'公益','XLV':'ヘルスケア','XLY':'一般消費財'}
-JP_TICKERS = ['1617.T','1618.T','1619.T','1620.T','1621.T','1622.T','1623.T','1624.T','1625.T','1626.T','1627.T','1628.T','1629.T','1630.T','1631.T','1632.T','1633.T']
-JP_LABELS = {'1617.T':'食品','1618.T':'エネルギー資源','1619.T':'建設・資材','1620.T':'素材・化学','1621.T':'医薬品','
+def compute_signal(p_u, p_j):
+    # パラメータ設定
+    L = 20
+    
+    # 騰落率の計算
+    ret_u = p_u.pct_change().dropna()
+    ret_j = p_j.pct_change().dropna()
+
+    # --- データ存在チェック ---
+    if ret_u.empty or ret_j.empty:
+        print("Error: One of the dataframes is empty after pct_change.")
+        return None, None, None, None
+
+    if len(ret_u) < L:
+        print(f"Error: Not enough data points. Need {L}, but got {len(ret_u)}.")
+        return None, None, None, None
+    # -----------------------
+
+    # 米国市場の直近Z-score
+    # iloc[-1] を参照する前にデータがあることを上記で確認済み
+    u_mean = ret_u.tail(L).mean()
+    u_std = ret_u.tail(L).std(ddof=0).replace(0, 1e-8)
+    z_U_today = ((ret_u.iloc[-1] - u_mean) / u_std).values
+
+    # 各セクターの直近リターン
+    us_ret_today = ret_u.iloc[-1].values
+    
+    # 日本市場（1321.T）の翌日リターンを予測する信号（ここでは単純平均などの例）
+    # 実際はここでUSのリードを日本に適用するロジックを記述
+    signal_value = np.mean(z_U_today) 
+
+    # 結果をまとめる（簡易版）
+    sig_df = pd.DataFrame({"Signal": [signal_value]}, index=[datetime.now().date()])
+    
+    return sig_df, signal_value, us_ret_today, z_U_today
+
+def main():
+    p_u, p_j = get_data()
+    
+    if p_u.empty or p_j.empty:
+        print("No data downloaded. Exiting script.")
+        return
+
+    sig_df, f_t, us_ret, us_a = compute_signal(p_u, p_j)
+
+    if sig_df is None:
+        print("Signal calculation failed due to insufficient data.")
+        return
+
+    print("--- Strategy Results ---")
+    print(f"Date: {sig_df.index[0]}")
+    print(f"Signal Value: {f_t:.4f}")
+    
+    # ここで注文指示やファイル保存などの処理を行う
+    # 例: sig_df.to_csv("latest_signal.csv")
+
+if __name__ == "__main__":
+    main()
