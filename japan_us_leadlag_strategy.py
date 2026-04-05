@@ -1,19 +1,23 @@
+"""
+日米業種リードラグ投資戦略（部分空間正則化PCA）
+GitHub Actions 実行用修正版
+"""
+import matplotlib
+# GUIのない環境(GitHub Actions)でエラーを防ぐために最優先で設定
+matplotlib.use('Agg') 
+
 import warnings
 warnings.filterwarnings('ignore')
-
-import matplotlib
-# GUIのないサーバー環境で動作させるための設定
-matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-import matplotlib.patches as mpatches
 import platform, os
 import numpy as np
 import pandas as pd
+import yfinance as yf
 
-# ── フォント設定（エラー回避用） ──────────────────────
+# ── 日本語フォント設定 ──────────────────────
 def _setup_japanese_font():
-    """GitHub Actions(Linux)環境でもエラーにならないようフォント設定を調整"""
+    """Linux環境でもフォントエラーで止まらないように設定"""
     system = platform.system()
     candidates = []
     if system == 'Windows':
@@ -21,7 +25,7 @@ def _setup_japanese_font():
     elif system == 'Darwin':
         candidates = ['Hiragino Sans']
     else:
-        # Linux環境用の一般的なフォント
+        # GitHub Actions(Ubuntu)環境
         candidates = ['Noto Sans CJK JP', 'DejaVu Sans', 'Liberation Sans']
 
     available = {f.name for f in fm.fontManager.ttflist}
@@ -33,21 +37,16 @@ def _setup_japanese_font():
 
 _setup_japanese_font()
 
-try:
-    import yfinance as yf
-    HAS_YFINANCE = True
-except ImportError:
-    HAS_YFINANCE = False
-
-# ── ティッカー & ラベル定義 ──────────────────────
+# ── ティッカー定義 ──────────────────────
 US_TICKERS = ['XLB','XLC','XLE','XLF','XLI','XLK','XLP','XLRE','XLU','XLV','XLY']
 US_LABELS = {'XLB':'Materials\n(素材)','XLC':'Comm Svcs\n(通信)','XLE':'Energy\n(エネルギー)','XLF':'Financials\n(金融)','XLI':'Industrials\n(産業)','XLK':'Info Tech\n(IT)','XLP':'Cons Staples\n(生活必需品)','XLRE':'Real Estate\n(不動産)','XLU':'Utilities\n(公益)','XLV':'Health Care\n(ヘルスケア)','XLY':'Cons Discr\n(一般消費財)'}
 JP_TICKERS = ['1617.T','1618.T','1619.T','1620.T','1621.T','1622.T','1623.T','1624.T','1625.T','1626.T','1627.T','1628.T','1629.T','1630.T','1631.T','1632.T','1633.T']
 JP_LABELS = {'1617.T':'食品','1618.T':'エネルギー資源','1619.T':'建設・資材','1620.T':'素材・化学','1621.T':'医薬品','1622.T':'自動車・輸送機','1623.T':'鉄鋼・非鉄','1624.T':'機械','1625.T':'電機・精密','1626.T':'情報通信・サービス','1627.T':'電力・ガス','1628.T':'運輸・物流','1629.T':'商社・卸売','1630.T':'小売','1631.T':'銀行','1632.T':'金融(除く銀行)','1633.T':'不動産'}
-US_CYCLICAL = ['XLB','XLE','XLF','XLRE']; US_DEFENSIVE = ['XLK','XLP','XLU','XLV']
-JP_CYCLICAL = ['1618.T','1625.T','1629.T','1631.T']; JP_DEFENSIVE = ['1617.T','1621.T','1627.T','1630.T']
 
-# ── ロジック部分 ──────────────────────
+US_CYCLICAL=['XLB','XLE','XLF','XLRE']; US_DEFENSIVE=['XLK','XLP','XLU','XLV']
+JP_CYCLICAL=['1618.T','1625.T','1629.T','1631.T']; JP_DEFENSIVE=['1617.T','1621.T','1627.T','1630.T']
+
+# ── 投資戦略ロジック ──────────────────────
 def build_prior_subspace(us_tickers, jp_tickers, us_c, us_d, jp_c, jp_d):
     N_U, N_J = len(us_tickers), len(jp_tickers)
     N = N_U + N_J
@@ -55,7 +54,84 @@ def build_prior_subspace(us_tickers, jp_tickers, us_c, us_d, jp_c, jp_d):
     v2_raw = np.concatenate([np.ones(N_U)/N_U, -np.ones(N_J)/N_J])
     v2_raw -= v2_raw.dot(v1) * v1
     v2 = v2_raw / np.linalg.norm(v2_raw)
+    
     sign_vec = np.zeros(N)
     for i, t in enumerate(us_tickers):
         if t in us_c: sign_vec[i] = 1.0
-        elif t in us_d: sign_
+        elif t in us_d: sign_vec[i] = -1.0
+    for j, t in enumerate(jp_tickers):
+        if t in jp_c: sign_vec[N_U+j] = 1.0
+        elif t in jp_d: sign_vec[N_U+j] = -1.0
+    v3_raw = sign_vec - sign_vec.dot(v1)*v1 - sign_vec.dot(v2)*v2
+    v3 = v3_raw / np.linalg.norm(v3_raw) if np.linalg.norm(v3_raw) > 1e-10 else v3_raw
+    return np.column_stack([v1, v2, v3])
+
+def compute_signal(p_us, p_jp, L=60, K=3, lam=0.9):
+    us_a = [t for t in US_TICKERS if t in p_us.columns]
+    jp_a = [t for t in JP_TICKERS if t in p_jp.columns]
+    
+    # リターン計算 (Close-to-Close)
+    ret_u = p_us[us_a].pct_change().dropna()
+    ret_j = p_jp[jp_a].pct_change().dropna()
+    common = ret_u.index.intersection(ret_j.index)
+    
+    # データの標準化
+    df_z = pd.concat([ret_u.loc[common], ret_j.loc[common]], axis=1).tail(L)
+    Z = ((df_z - df_z.mean()) / df_z.std(ddof=0).replace(0, 1e-8)).values
+    Ct = np.nan_to_num(np.corrcoef(Z.T), nan=0.0)
+    
+    # 部分空間正則化PCA
+    V0 = build_prior_subspace(us_a, jp_a, US_CYCLICAL, US_DEFENSIVE, JP_CYCLICAL, JP_DEFENSIVE)
+    C0 = V0 @ V0.T # 簡略化した事前相関
+    C_reg = (1 - lam) * Ct + lam * C0
+    
+    vals, vecs = np.linalg.eigh(C_reg)
+    Vt_K = vecs[:, np.argsort(vals)[::-1][:K]]
+    
+    # シグナル生成
+    V_U, V_J = Vt_K[:len(us_a), :], Vt_K[len(us_a):, :]
+    z_U_today = ((ret_u.iloc[-1] - ret_u.tail(L).mean()) / ret_u.tail(L).std(ddof=0).replace(0,1e-8)).values
+    f_t = V_U.T @ z_U_today
+    z_hat_J = V_J @ f_t
+    
+    sig_df = pd.DataFrame({'ticker':jp_a, 'label':[JP_LABELS.get(t,t) for t in jp_a], 'signal':z_hat_J}).set_index('ticker')
+    return sig_df, f_t, ret_u.iloc[-1].to_dict(), us_a
+
+def main():
+    print("Fetching data from Yahoo Finance...")
+    p_u = yf.download(US_TICKERS, period='1y')['Close']
+    p_j = yf.download(JP_TICKERS, period='1y')['Close']
+    
+    sig_df, f_t, us_ret, us_a = compute_signal(p_u, p_j)
+    
+    # ── ダッシュボード描画 ──
+    fig = plt.figure(figsize=(16, 12), facecolor='#0d1117')
+    # US Returns (Top)
+    ax1 = fig.add_subplot(3, 1, 1, facecolor='#161b22')
+    vals = [us_ret.get(t,0)*100 for t in us_a]
+    ax1.bar(range(len(us_a)), vals, color=['#2ea043' if v>=0 else '#da3633' for v in vals])
+    ax1.set_title('[US] Today Returns (%)', color='white', fontsize=15)
+    ax1.set_xticks(range(len(us_a)))
+    ax1.set_xticklabels([US_LABELS[t] for t in us_a], color='#8b949e', rotation=30)
+    
+    # JP Prediction (Middle)
+    ax2 = fig.add_subplot(3, 1, 2, facecolor='#161b22')
+    df_s = sig_df.sort_values('signal', ascending=False)
+    ax2.bar(range(len(df_s)), df_s['signal'], color=['#2ea043' if v>=0 else '#da3633' for v in df_s['signal']])
+    ax2.set_title('[JP] Predicted Signal (Next Day)', color='white', fontsize=15)
+    ax2.set_xticks(range(len(df_s)))
+    ax2.set_xticklabels(df_s['label'], color='#8b949e', rotation=45)
+    
+    # Summary (Bottom)
+    ax3 = fig.add_subplot(3, 1, 3, facecolor='#0d1117')
+    ax3.axis('off')
+    summary_text = "BUY Recommended:\n" + ", ".join(df_s.head(3)['label'].tolist()) + \
+                   "\n\nSELL Recommended:\n" + ", ".join(df_s.tail(3)['label'].tolist())
+    ax3.text(0.5, 0.5, summary_text, color='white', fontsize=20, ha='center', va='center')
+
+    plt.tight_layout()
+    plt.savefig('leadlag_signal_dashboard.png', facecolor='#0d1117')
+    print("Success: leadlag_signal_dashboard.png generated.")
+
+if __name__ == '__main__':
+    main()
