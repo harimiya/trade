@@ -20,7 +20,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # フォントインストールとキャッシュクリアを確実に行う
       - name: Install Japanese Fonts
         run: |
           sudo apt-get update
@@ -39,9 +38,10 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           if [ -f "discord_msg.txt" ]; then
+            # メッセージをコードブロック（```）で囲むと等幅フォントになり、フォーマットが綺麗に保たれます
             MESSAGE=$(cat discord_msg.txt)
             curl -X POST -H "Content-Type: multipart/form-data" \
-                 -F "content=$MESSAGE" \
+                 -F "content=\`\`\`$MESSAGE\`\`\`" \
                  -F "file=@leadlag_signal_dashboard.png" \
                  "$DISCORD_WEBHOOK"
           fi
