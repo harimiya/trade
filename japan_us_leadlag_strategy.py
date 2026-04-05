@@ -1,7 +1,9 @@
 import warnings
 warnings.filterwarnings('ignore')
+
 import matplotlib
-matplotlib.use('Agg') # GUIのないサーバー環境(GitHub Actions)でエラーを防ぐ設定
+# GUIのないサーバー環境で動作させるための設定
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import matplotlib.patches as mpatches
@@ -9,63 +11,51 @@ import platform, os
 import numpy as np
 import pandas as pd
 
-# ── 日本語フォント設定 ──────────────────────
+# ── フォント設定（エラー回避用） ──────────────────────
 def _setup_japanese_font():
-    """GitHub Actions環境でもエラーにならないよう、フォント設定を簡略化"""
-    import matplotlib.pyplot as plt
-    
-    # 既存のフォントリストから使えるものを探す
-    system_fonts = [f.name for f in fm.fontManager.ttflist]
-    
-    # Ubuntu(Actions)で標準的なフォントを指定
-    for f in ['DejaVu Sans', 'Liberation Sans', 'Arial']:
-        if f in system_fonts:
-            plt.rcParams['font.family'] = f
+    """GitHub Actions(Linux)環境でもエラーにならないようフォント設定を調整"""
+    system = platform.system()
+    candidates = []
+    if system == 'Windows':
+        candidates = ['Yu Gothic', 'Meiryo']
+    elif system == 'Darwin':
+        candidates = ['Hiragino Sans']
+    else:
+        # Linux環境用の一般的なフォント
+        candidates = ['Noto Sans CJK JP', 'DejaVu Sans', 'Liberation Sans']
+
+    available = {f.name for f in fm.fontManager.ttflist}
+    for font in candidates:
+        if font in available:
+            matplotlib.rcParams['font.family'] = font
             break
-            
-    plt.rcParams['axes.unicode_minus'] = False
-    return "Fallback"
     matplotlib.rcParams['axes.unicode_minus'] = False
 
 _setup_japanese_font()
 
-# ✅ これに置き換えてください
 try:
     import yfinance as yf
     HAS_YFINANCE = True
 except ImportError:
     HAS_YFINANCE = False
 
-# ── ティッカー定義 ──────────────────────
+# ── ティッカー & ラベル定義 ──────────────────────
 US_TICKERS = ['XLB','XLC','XLE','XLF','XLI','XLK','XLP','XLRE','XLU','XLV','XLY']
 US_LABELS = {'XLB':'Materials\n(素材)','XLC':'Comm Svcs\n(通信)','XLE':'Energy\n(エネルギー)','XLF':'Financials\n(金融)','XLI':'Industrials\n(産業)','XLK':'Info Tech\n(IT)','XLP':'Cons Staples\n(生活必需品)','XLRE':'Real Estate\n(不動産)','XLU':'Utilities\n(公益)','XLV':'Health Care\n(ヘルスケア)','XLY':'Cons Discr\n(一般消費財)'}
 JP_TICKERS = ['1617.T','1618.T','1619.T','1620.T','1621.T','1622.T','1623.T','1624.T','1625.T','1626.T','1627.T','1628.T','1629.T','1630.T','1631.T','1632.T','1633.T']
 JP_LABELS = {'1617.T':'食品','1618.T':'エネルギー資源','1619.T':'建設・資材','1620.T':'素材・化学','1621.T':'医薬品','1622.T':'自動車・輸送機','1623.T':'鉄鋼・非鉄','1624.T':'機械','1625.T':'電機・精密','1626.T':'情報通信・サービス','1627.T':'電力・ガス','1628.T':'運輸・物流','1629.T':'商社・卸売','1630.T':'小売','1631.T':'銀行','1632.T':'金融(除く銀行)','1633.T':'不動産'}
-US_CYCLICAL=['XLB','XLE','XLF','XLRE']; US_DEFENSIVE=['XLK','XLP','XLU','XLV']
-JP_CYCLICAL=['1618.T','1625.T','1629.T','1631.T']; JP_DEFENSIVE=['1617.T','1621.T','1627.T','1630.T']
+US_CYCLICAL = ['XLB','XLE','XLF','XLRE']; US_DEFENSIVE = ['XLK','XLP','XLU','XLV']
+JP_CYCLICAL = ['1618.T','1625.T','1629.T','1631.T']; JP_DEFENSIVE = ['1617.T','1621.T','1627.T','1630.T']
 
-# (中略: ロジック部分はご提示いただいたコードをそのまま継承)
-
-def compute_signal(prices_us, prices_jp, us_tickers, jp_tickers, L=60, K=3, lam=0.9):
-    # ── インデント修正済み ──
-    us_avail = [t for t in us_tickers if t in prices_us.columns]
-    jp_avail = [t for t in jp_tickers if t in prices_jp.columns]
-    
-    # 実際のリターン計算と相関行列 R_reg の算出
-    # (ロジック詳細は省略しますが、インデントを揃えて配置します)
-    
-    # 正則化相関行列の固有分解
-    # C_reg = (1 - lam) * C_t + lam * C0
-    # eigvals, eigvecs = np.linalg.eigh(C_reg)
-    # idx = np.argsort(eigvals)[::-1]
-    # Vt_K = eigvecs[:, idx[:K]]
-    
-    # 35行目付近のエラー箇所
-    # n_us_a = len(us_avail)
-    # V_U = Vt_K[:n_us_a, :]
-    # V_J = Vt_K[n_us_a:, :]  <-- ここがズレていた可能性があります
-    
-    # ... シグナル計算 ...
-    return signal_df, f_t, us_ret_today, us_avail, z_U
-
-# (以下、plot_dashboard 等が続く)
+# ── ロジック部分 ──────────────────────
+def build_prior_subspace(us_tickers, jp_tickers, us_c, us_d, jp_c, jp_d):
+    N_U, N_J = len(us_tickers), len(jp_tickers)
+    N = N_U + N_J
+    v1 = np.ones(N) / np.sqrt(N)
+    v2_raw = np.concatenate([np.ones(N_U)/N_U, -np.ones(N_J)/N_J])
+    v2_raw -= v2_raw.dot(v1) * v1
+    v2 = v2_raw / np.linalg.norm(v2_raw)
+    sign_vec = np.zeros(N)
+    for i, t in enumerate(us_tickers):
+        if t in us_c: sign_vec[i] = 1.0
+        elif t in us_d: sign_
