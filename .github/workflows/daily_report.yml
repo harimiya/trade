@@ -19,32 +19,27 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install yfinance numpy pandas matplotlib scipy
 
-- name: Run strategy
-        # 画像がどこに生成されたか確認するために 'ls' を追加し、
-        # 確実にカレントディレクトリに画像が来るようにします
+      - name: Run strategy
+        # 1. スクリプトを実行
+        # 2. 終了後にファイル一覧を表示して画像の存在を確認
         run: |
           python japan_us_leadlag_strategy.py
-          ls -lh *.png || echo "No png file found"
+          echo "--- Generated Files ---"
+          ls -lh *.png || echo "No PNG files found."
 
       - name: Post Dashboard to Discord
-        # ファイルが存在する場合のみ実行し、パスを明示します
-        if: success() 
+        # 前のステップが成功した場合のみ実行
+        if: success()
         run: |
           if [ -f "leadlag_signal_dashboard.png" ]; then
-            curl -X POST -F "file=@./leadlag_signal_dashboard.png" \
-                 -F "payload_json={\"content\": \"📈 本日の日米業種リードラグ・シグナルを更新しました\"}" \
-                 ${{ secrets.DISCORD_WEBHOOK_URL }}
+            curl -X POST \
+              -F "file=@./leadlag_signal_dashboard.png" \
+              -F "payload_json={\"content\": \"📈 **日米業種リードラグ・シグナル更新**\n生成日: $(date +'%Y-%m-%d')\"}" \
+              ${{ secrets.DISCORD_WEBHOOK_URL }}
           else
-            echo "画像ファイルが見つからないため、送信をスキップします。"
+            echo "Error: leadlag_signal_dashboard.png not found."
             exit 1
           fi
-
-      - name: Post Dashboard to Discord
-        # 生成された画像(leadlag_signal_dashboard.png)をWebhook経由で送信します
-        if: always() # 計算が成功した場合にのみ実行
-        run: |
-          curl -X POST -F "file=@leadlag_signal_dashboard.png" \
-               -F "payload_json={\"content\": \"📈 本日の日米業種リードラグ・シグナルを更新しました\"}" \
-               ${{ secrets.DISCORD_WEBHOOK_URL }}
