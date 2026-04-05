@@ -30,7 +30,8 @@ def calculate_signal():
     C_ju = (Z_j.T @ Z_u) / T
     lam = 0.9
     C_reg = (1-lam)*(C_ju @ C_ju.T) + lam * C_jj
-    vals, vecs = eigh(C_reg, eigvals=(C_reg.shape[0]-3, C_reg.shape[0]-1))
+    # 下位互換性を保ちつつ、確実に動く書き方に変更します
+vals, vecs = eigh(C_reg, subset_by_index=[C_reg.shape[0]-3, C_reg.shape[0]-1])
     V_j = vecs[:, ::-1]
     B = V_j @ V_j.T @ C_ju @ np.linalg.inv(C_uu + 1e-6 * np.eye(len(TICKERS_U)))
     latest_ret_u = ret_u.iloc[-1].values
