@@ -1,0 +1,53 @@
+name: Lead-Lag Strategy Daily Run
+
+on:
+  schedule:
+    # 毎日 01:00 UTC (日本時間 10:00) に実行
+    - cron: '0 1 * * *'
+  workflow_dispatch: # 手動実行ボタンを有効化
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance numpy pandas matplotlib
+
+      - name: Run strategy script
+        run: python japan_us_leadlag_strategy.py
+
+      - name: Check for generated image
+        id: check_file
+        run: |
+          if [ -f "leadlag_signal_dashboard.png" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload result image
+        if: steps.check_file.outputs.exists == 'true'
+        uses: actions/upload-artifact@v3
+        with:
+          name: strategy-dashboard
+          path: leadlag_signal_dashboard.png
+
+      - name: Commit and push if changed
+        if: steps.check_file.outputs.exists == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add leadlag_signal_dashboard.png
+          git commit -m "Update daily strategy dashboard" || exit 0
+          git push
