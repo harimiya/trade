@@ -32,7 +32,6 @@ JP_LABELS = {
 US_CYCLICAL, US_DEFENSIVE = ['XLB','XLE','XLF','XLRE'], ['XLK','XLP','XLU','XLV']
 JP_CYCLICAL, JP_DEFENSIVE = ['1618.T','1625.T','1629.T','1631.T'], ['1617.T','1621.T','1627.T','1630.T']
 
-# ── データ取得 (再現性を高めるため開始日を固定) ──
 def fetch_data():
     u_raw = yf.download(US_TICKERS, start='2019-01-01', auto_adjust=True, threads=False)
     j_raw = yf.download(JP_TICKERS, start='2019-01-01', auto_adjust=True, threads=False)
@@ -109,26 +108,23 @@ def main():
     fig = plt.figure(figsize=(15, 12), facecolor='#0d1117')
     gs = fig.add_gridspec(3, 1, hspace=0.4)
     
-    # [Graph] US Returns
-    ax0 = fig.add_subplot(gs[0, 0])
-    u_pct = u_ret * 100
+    # グラフ描画
+    ax0 = fig.add_subplot(gs[0, 0]); u_pct = u_ret * 100
     ax0.bar(u_pct.index, u_pct.values, color=['#2ea043' if x > 0 else '#da3633' for x in u_pct])
     ax0.set_title("[US] 当日セクターリターン (%)", fontsize=14)
     
-    # [Graph] JP Signals
     ax1 = fig.add_subplot(gs[1, 0])
     ax1.bar(sig_df['label'], sig_df['signal'], color=['#2ea043' if x > 0 else '#da3633' for x in sig_df['signal']])
     ax1.set_title("[JP] 翌日予測シグナル", fontsize=14)
     plt.xticks(rotation=30, ha='right')
     
-    # [Graph] Factor Scores
     ax2 = fig.add_subplot(gs[2, 0])
     ax2.bar(['Global', 'Spread', 'Cyclical'], f_t, color='#58a6ff')
     ax2.set_title("共通ファクタースコア (f_t)", fontsize=14)
 
     plt.savefig('leadlag_signal_dashboard.png', facecolor='#0d1117', bbox_inches='tight')
     
-    # [Text] Discord Format
+    # Discord通知用テキスト作成
     sep = "=" * 60
     buy_df = sig_df[sig_df['signal'] > 0]
     sell_df = sig_df[sig_df['signal'] <= 0].sort_values('signal')
