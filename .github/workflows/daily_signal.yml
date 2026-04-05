@@ -2,7 +2,7 @@ name: Daily Stock Signal
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 毎日日本時間 9:00 (UTC 0:00)
+    - cron: '0 0 * * *' # 日本時間 9:00
   workflow_dispatch:
 
 jobs:
@@ -23,18 +23,17 @@ jobs:
 
       - name: Run strategy
         run: |
-          # 確実に japan_us_leadlag_strategy.py という名前で実行
+          # 実行ファイル名は japan_us_leadlag_strategy.py とします
           python japan_us_leadlag_strategy.py
-          ls -R # 生成されたファイルを確認
 
       - name: Post to Discord
-        if: always()
+        if: success()
         run: |
           if [ -f "leadlag_signal_dashboard.png" ]; then
-            curl -X POST -F "file=@leadlag_signal_dashboard.png" \
-                 -F "payload_json={\"content\": \"📈 シグナルを更新しました\"}" \
+            curl -X POST -F "file=@./leadlag_signal_dashboard.png" \
+                 -F "payload_json={\"content\": \"📈 **日米業種リードラグ・シグナルを更新しました**\"}" \
                  ${{ secrets.DISCORD_WEBHOOK_URL }}
           else
-            echo "Error: Image not found. Check Python logs."
+            echo "Error: Image not found."
             exit 1
           fi
