@@ -32,7 +32,6 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           if [ -f "discord_msg.txt" ]; then
-            # 環境変数経由でメッセージを渡して文字化けと改行崩れを防止
             MESSAGE=$(cat discord_msg.txt)
             curl -X POST -H "Content-Type: multipart/form-data" \
                  -F "content=$MESSAGE" \
@@ -40,7 +39,7 @@ jobs:
                  "$DISCORD_WEBHOOK"
           fi
 
-      - name: Commit and push if changed
+      - name: Commit and push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
