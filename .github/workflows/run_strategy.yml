@@ -2,20 +2,22 @@ name: Lead-Lag Strategy Daily Run
 
 on:
   schedule:
-    # 毎日 01:00 UTC (日本時間 10:00) に実行
+    # 日本時間 午前10:00 (01:00 UTC) に自動実行
     - cron: '0 1 * * *'
-  workflow_dispatch: # 手動実行ボタンを有効化
+  workflow_dispatch: # 手動実行ボタン
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Git Pushを許可するために必要
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # v4に更新
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # v5に更新
         with:
           python-version: '3.11'
 
@@ -36,12 +38,14 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      # エラーが出ていた箇所を v4 に更新
       - name: Upload result image
         if: steps.check_file.outputs.exists == 'true'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # v4に更新
         with:
-          name: strategy-dashboard
+          name: strategy-dashboard-${{ github.run_id }} # 重複エラーを避けるため実行IDを付与
           path: leadlag_signal_dashboard.png
+          retention-days: 7 # 7日間保持
 
       - name: Commit and push if changed
         if: steps.check_file.outputs.exists == 'true'
@@ -49,5 +53,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add leadlag_signal_dashboard.png
-          git commit -m "Update daily strategy dashboard" || exit 0
+          git commit -m "Update daily strategy dashboard [skip ci]" || exit 0
           git push
