@@ -30,7 +30,7 @@ def _setup_japanese_font():
 
 _setup_japanese_font()
 
-import yf_install_check # もしyfinanceが必要なら
+# ✅ これに置き換えてください
 try:
     import yfinance as yf
     HAS_YFINANCE = True
