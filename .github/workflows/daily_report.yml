@@ -21,9 +21,25 @@ jobs:
         run: |
           pip install yfinance numpy pandas matplotlib scipy
 
-      - name: Run strategy
-        # ここで Python ファイル名を正確に指定します
-        run: python japan_us_leadlag_strategy.py
+- name: Run strategy
+        # 画像がどこに生成されたか確認するために 'ls' を追加し、
+        # 確実にカレントディレクトリに画像が来るようにします
+        run: |
+          python japan_us_leadlag_strategy.py
+          ls -lh *.png || echo "No png file found"
+
+      - name: Post Dashboard to Discord
+        # ファイルが存在する場合のみ実行し、パスを明示します
+        if: success() 
+        run: |
+          if [ -f "leadlag_signal_dashboard.png" ]; then
+            curl -X POST -F "file=@./leadlag_signal_dashboard.png" \
+                 -F "payload_json={\"content\": \"📈 本日の日米業種リードラグ・シグナルを更新しました\"}" \
+                 ${{ secrets.DISCORD_WEBHOOK_URL }}
+          else
+            echo "画像ファイルが見つからないため、送信をスキップします。"
+            exit 1
+          fi
 
       - name: Post Dashboard to Discord
         # 生成された画像(leadlag_signal_dashboard.png)をWebhook経由で送信します
