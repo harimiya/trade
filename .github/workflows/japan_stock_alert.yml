@@ -1,0 +1,36 @@
+name: 🇯🇵 Japan Stock Alert – Daily 7:00 JST
+
+on:
+  schedule:
+    # 毎朝 日本時間 7:00 = UTC 22:00（前日）
+    - cron: "0 22 * * 0-4"   # 日〜木（月〜金の前夜 UTC）
+  workflow_dispatch:           # 手動実行ボタン
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── 1. リポジトリをチェックアウト ──
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python セットアップ ──
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 3. 依存ライブラリのインストール ──
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install yfinance pandas requests openpyxl xlrd
+
+      # ── 4. スクリーニング実行 & Discord通知 ──
+      - name: Run Japan Stock Screener
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python japan_stock_alert.py
