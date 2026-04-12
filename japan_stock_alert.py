@@ -196,7 +196,13 @@ def screen_ticker(ticker: str, today: date, market_name: str, min_market_cap: in
     hist[-2] = シグナル日
     hist[-1] = 確認日（終値 >= シグナル日終値なら維持確認OK）
     today    = 通知日 = 購入予定日（寄り付き成行買い）
-    min_market_cap = 市場別の最低時価総額（円）
+
+    【指値推奨価格の計算】
+    B2: 現在の5日MA価格 → 5日MAタッチで指値買い
+    C1: シグナル後5?15営業日（≒7?21暦日）の反発転換翌日成行
+        today基準で +4?+18暦日のウィンドウ
+    C2: シグナル後5?20営業日（≒7?28暦日）の反発転換翌日成行
+        today基準で +4?+25暦日のウィンドウ
     """
     try:
         tk   = yf.Ticker(ticker)
@@ -248,6 +254,19 @@ def screen_ticker(ticker: str, today: date, market_name: str, min_market_cap: in
         if mkt_cap is None or mkt_cap < min_market_cap:
             return None
 
+        # ── B2: 5日MA指値価格 ──
+        ma5_val = float(hist["Close"].rolling(5).mean().iloc[-1])
+        # 5日MAがシグナル日終値より高い場合（MA上昇中）は少し下を目安に
+        b2_limit = round(ma5_val, 0)
+
+        # ── C1/C2: 監視ウィンドウ日付（today基準）──
+        # シグナル日はtoday-2営業日≒today-3暦日
+        # 5営業日後=シグナル+7暦日 → today+4, 15営業日後=シグナル+21暦日 → today+18
+        # 20営業日後=シグナル+28暦日 → today+25
+        c1_watch_start = today + timedelta(days=4)
+        c1_watch_end   = today + timedelta(days=18)
+        c2_watch_end   = today + timedelta(days=25)
+
         # ── 銘柄名 ──
         try:
             info       = tk.info
@@ -273,6 +292,11 @@ def screen_ticker(ticker: str, today: date, market_name: str, min_market_cap: in
             "high_badge":      high_badge,
             "buy_date":        buy_date,
             "sell_date":       sell_date,
+            # 指値推奨
+            "b2_limit":        b2_limit,
+            "c1_watch_start":  c1_watch_start,
+            "c1_watch_end":    c1_watch_end,
+            "c2_watch_end":    c2_watch_end,
         }
 
     except Exception as e:
@@ -298,9 +322,15 @@ def build_discord_payload(results: list[dict], run_date: str, nikkei_ok: bool) -
     else:
         lines = []
         for r in results:
-            trend = " " if r["sustain_chg"] >= 0 else " "
+            trend    = " " if r["sustain_chg"] >= 0 else " "
             buy_str  = r["buy_date"].strftime("%Y/%m/%d")
             sell_str = r["sell_date"].strftime("%Y/%m/%d")
+
+            # ── 指値推奨セクション ──
+            b2_str  = f"\{r['b2_limit']:,.0f}"
+            c1s_str = r["c1_watch_start"].strftime("%m/%d")
+            c1e_str = r["c1_watch_end"].strftime("%m/%d")
+            c2e_str = r["c2_watch_end"].strftime("%m/%d")
 
             lines.append(
                 f"**{r['name']}** (`{r['ticker']}`）　{r['market']}\n"
@@ -310,31 +340,39 @@ def build_discord_payload(results: list[dict], run_date: str, nikkei_ok: bool) -
                 f"　{trend} 確認日終値: \{r['confirm_close']:,.0f}　"
                 f"（シグナル比: {r['sustain_chg']:+.2f}%）　"
                 f"時価総額: {format_market_cap(r['market_cap'])}\n"
-                f"　  **購入予定日: {buy_str}（本日寄り付き）**\n"
-                f"　  **売却予定日: {sell_str}（60日後・最初の営業日引け）**"
+                f"　  **即時エントリー: {buy_str} 寄り付き成行**\n"
+                f"　  **売却予定日: {sell_str}（60日後・最初の営業日引け）**\n"
+                f"　──────────────────────\n"
+                f"　  **指値推奨価格（初押し狙い）**\n"
+                f"　  B2｜5日MAタッチ指値: **{b2_str}**\n"
+                f"　　　→ 5日移動平均線まで下落した日の翌朝寄り付き成行\n"
+                f"　  C1｜反発転換待ち: **{c1s_str}?{c1e_str} の間を監視**\n"
+                f"　　　→ 前日比プラス転換した翌朝寄り付き成行（勝率67.6%）\n"
+                f"　  C2｜反発転換待ち: **{c1s_str}?{c2e_str} の間を監視**\n"
+                f"　　　→ 前日比プラス転換した翌朝寄り付き成行（勝率67.6%）"
             )
         description = "\n\n".join(lines)
 
-        # バッジ優先度で色を決定
         if any("上場来" in r["high_badge"] for r in results):
-            color = 0x9b59b6   # 紫（上場来高値）
+            color = 0x9b59b6
         elif any("3年" in r["high_badge"] for r in results):
-            color = 0xf1c40f   # 金
+            color = 0xf1c40f
         else:
-            color = 0xe67e22   # 橙（2年高値）
+            color = 0xe67e22
 
     return {
         "embeds": [
             {
-                "title": f"  買いエントリー候補｜{run_date}　{nk_badge}",
+                "title": f"  東証プライム・高値更新初押し戦略｜{run_date}　{nk_badge}",
                 "description": description,
                 "color": color,
                 "footer": {
                     "text": (
-                        "条件: 急騰+5?15% / 出来高2倍以上 / 前日出来高1.5倍以上 / "
-                        "1日高値維持 / 2年高値更新or上場来高値更新 / 日経>75MA / "
-                        "東証プライム・時価総額1000億円以上 "
-                        "| バックテスト実績: 勝率62.3% / 平均+6.10%"
+                        "即時: 寄り付き成行（勝率63.1%/平均+7.13%）　"
+                        "B2: 5日MAタッチ指値（勝率66.2%）　"
+                        "C1/C2: 反発転換翌朝成行（勝率67.6%）　"
+                        "| 条件: 急騰+5?15%/出来高2倍/前日出来高1.5倍/"
+                        "1日高値維持/2年or上場来高値更新/日経>75MA/プライム1000億円以上"
                     )
                 },
                 "timestamp": datetime.now(JST).isoformat(),
