@@ -1,15 +1,17 @@
-name: 🇯🇵 Japan Stock Alert – Daily 7:00 JST
+name: 🇯🇵 Japan Stock Alert – Daily 01:00 JST
 
 on:
   schedule:
-    # 毎朝 日本時間 7:00 = UTC 22:00（前日）
-    - cron: "0 22 * * 0-4"   # 日〜木（月〜金の前夜 UTC）
-  workflow_dispatch:           # 手動実行ボタン
+    # 毎朝 日本時間 01:00 = UTC 16:00（前日）
+    # 月〜金 JST 01:00 = 日〜木 UTC 16:00
+    - cron: "0 16 * * 0,1,2,3,4"
+  workflow_dispatch:   # 手動実行ボタン（テスト用）
 
 jobs:
   alert:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 全市場3000銘柄以上をスキャンするため余裕を持って設定
+    timeout-minutes: 180
 
     steps:
       # ── 1. リポジトリをチェックアウト ──
@@ -22,11 +24,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      # ── 3. 依存ライブラリのインストール ──
+      # ── 3. 依存ライブラリをキャッシュ付きインストール ──
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-stockalert-v1
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install yfinance pandas requests openpyxl xlrd
+          pip install yfinance pandas numpy requests openpyxl xlrd
 
       # ── 4. スクリーニング実行 & Discord通知 ──
       - name: Run Japan Stock Screener
@@ -34,3 +44,25 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           python japan_stock_alert.py
+
+      # ── 5. エラー発生時にDiscordへ失敗通知 ──
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python - <<'EOF'
+          import os, requests
+          from datetime import datetime, timezone, timedelta
+          JST = timezone(timedelta(hours=9))
+          url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+          if url.startswith("https://"):
+              requests.post(url, json={
+                  "embeds": [{
+                      "title": "⚠️ スクリーニング実行エラー",
+                      "description": "GitHub Actions でエラーが発生しました。ログを確認してください。",
+                      "color": 0xe74c3c,
+                      "timestamp": datetime.now(JST).isoformat(),
+                  }]
+              }, timeout=10)
+          EOF
