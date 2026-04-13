@@ -1,17 +1,17 @@
-name: 📚 nsearch.jp — 5年分 履歴スクレイピング（初回のみ）
+name: 📚 nsearch.jp — 5年分 履歴スクレイピング（初回のみ手動実行）
 
 on:
   workflow_dispatch:
     inputs:
       years:
-        description: "遡る年数"
+        description: "遡る年数（推奨: 5）"
         default: "5"
         required: false
       run_backtest:
-        description: "取得後にバックテストも実行する"
-        default: "true"
+        description: "取得後にバックテストも実行"
         type: choice
         options: ["true", "false"]
+        default: "true"
         required: false
 
 env:
@@ -19,10 +19,10 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
-  historical-scrape:
-    name: "nsearch 5年分 履歴取得"
+  history:
+    name: "nsearch 履歴一括取得"
     runs-on: ubuntu-latest
-    timeout-minutes: 360   # 最大6時間（大量ページのため余裕を持たせる）
+    timeout-minutes: 360   # 最大 6 時間
 
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,6 @@ jobs:
           pip install playwright
           playwright install chromium --with-deps
 
-      # ── 年別に取得（1年分ずつ保存してキャッシュ活用）──
       - name: Restore existing history cache
         uses: actions/cache@v4
         with:
@@ -50,68 +49,40 @@ jobs:
           restore-keys: nsearch-history-
 
       - name: Scrape nsearch history
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           YEARS="${{ github.event.inputs.years || '5' }}"
-          echo "=== nsearch.jp 過去${YEARS}年分 スクレイピング開始 ==="
+          echo "=== nsearch.jp 過去 ${YEARS} 年分 スクレイピング開始 ==="
           python src/nsearch_scraper.py --mode history --years ${YEARS}
-          echo "=== スクレイピング完了 ==="
 
-          echo "--- 取得件数サマリー ---"
+          echo "--- 取得件数 ---"
           python - << 'EOF'
-          import json, glob, os
+          import json, glob
           total = 0
-          for f in sorted(glob.glob("data/nsearch_*.json")):
-              if "delta" in f: continue
+          for f in sorted(glob.glob("data/nsearch_2*.json")):
               try:
-                  data = json.load(open(f))
-                  print(f"  {os.path.basename(f)}: {len(data)} 件")
-                  total += len(data)
+                  n = len(json.load(open(f)))
+                  print(f"  {f}: {n} 件")
+                  total += n
               except: pass
           print(f"  合計: {total} 件")
           EOF
-
-      - name: Run backtest (optional)
-        if: github.event.inputs.run_backtest == 'true'
-        run: |
-          echo "=== バックテスト実行 ==="
-          python backtest/backtest_sim.py
-          echo "=== バックテスト完了 ==="
 
       - name: Commit history data
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/nsearch_*.json backtest_results/ 2>/dev/null || true
+          git add data/nsearch_*.json 2>/dev/null || true
           git diff --staged --quiet && echo "変更なし" && exit 0
-          git commit -m "📚 nsearch 履歴データ更新 [bot]"
+          git commit -m "📚 nsearch 5年分 履歴データ追加 [bot]"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload history artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nsearch-history-${{ github.run_id }}
-          path: |
-            data/nsearch_*.json
-            backtest_results/
+          path: data/nsearch_*.json
           retention-days: 365
-
-      - name: Job summary
-        if: always()
-        run: |
-          echo "## 📚 nsearch 履歴スクレイピング結果" >> $GITHUB_STEP_SUMMARY
-          python - >> $GITHUB_STEP_SUMMARY << 'EOF'
-          import json, glob
-          total = 0
-          print("| ファイル | 件数 |")
-          print("|----------|------|")
-          for f in sorted(glob.glob("data/nsearch_*.json")):
-              if "delta" in f: continue
-              try:
-                  n = len(json.load(open(f)))
-                  print(f"| {f} | {n} |")
-                  total += n
-              except: pass
-          print(f"\n**合計 {total} 件**")
-          EOF

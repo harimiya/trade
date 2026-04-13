@@ -1,9 +1,13 @@
-name: 📡 入札落札シグナル — 毎朝スキャン
+name: 📡 入札落札シグナル — 毎朝スキャン & Discord 通知
 
 on:
+  # ─────────────────────────────────────────────────
+  # 毎朝 3:00 JST（= UTC 前日 18:00）に自動実行
+  # ─────────────────────────────────────────────────
   schedule:
-    - cron: "0 18 * * *"   # JST 03:00 (= UTC 18:00 前日)
+    - cron: "0 18 * * *"
 
+  # 手動実行（デバッグ / ページ数変更）
   workflow_dispatch:
     inputs:
       nikoukei_pages:
@@ -15,10 +19,10 @@ on:
         default: "7"
         required: false
       quick:
-        description: "クイックテスト (3ページ)"
-        default: "false"
+        description: "クイックテスト（3ページのみ）"
         type: choice
         options: ["false", "true"]
+        default: "false"
         required: false
 
 env:
@@ -27,27 +31,45 @@ env:
 
 jobs:
   scan:
-    name: "入札結果スキャン & シグナル生成"
+    name: "🔍 入札結果スキャン & Discord 通知"
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      # ────────────────────────────────────────
+      # 1. チェックアウト
+      # ────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      # ────────────────────────────────────────
+      # 2. Python セットアップ
+      # ────────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
 
-      - name: Install dependencies
+      # ────────────────────────────────────────
+      # 3. 依存パッケージ
+      # ────────────────────────────────────────
+      - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      # ────────────────────────────────────────
+      # 4. Playwright（nsearch.jp JS レンダリング用）
+      # ────────────────────────────────────────
       - name: Install Playwright + Chromium
         run: |
           pip install playwright
           playwright install chromium --with-deps
 
+      # ────────────────────────────────────────
+      # 5. seen_ids キャッシュを復元
+      # ────────────────────────────────────────
       - name: Restore seen_ids cache
         uses: actions/cache@v4
         with:
@@ -55,10 +77,15 @@ jobs:
           key: seen-ids-${{ github.run_id }}
           restore-keys: seen-ids-
 
+      # ────────────────────────────────────────
+      # 6. スクレイパー実行 & Discord 通知
+      # ────────────────────────────────────────
       - name: Run scraper
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
+          echo "=== $(date '+%Y-%m-%d %H:%M:%S JST') スキャン開始 ==="
+
           if [ "${{ github.event.inputs.quick }}" = "true" ]; then
             python src/scraper.py --quick
           else
@@ -67,24 +94,35 @@ jobs:
               --nsearch-days   "${{ github.event.inputs.nsearch_days   || '7'  }}"
           fi
 
-      - name: Commit signals
+          echo "=== スキャン完了 ==="
+
+      # ────────────────────────────────────────
+      # 7. シグナルファイルをコミット & プッシュ
+      # ────────────────────────────────────────
+      - name: Commit & push signals
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add signals/ data/seen_ids.json data/nsearch_delta.json 2>/dev/null || true
-          git diff --staged --quiet && exit 0
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+
           TODAY=$(date '+%Y-%m-%d')
           COUNT=$(python -c "
-          import json,glob
-          fs=sorted(glob.glob('signals/*.json'))
+          import json, glob
+          fs = sorted(glob.glob('signals/*.json'))
           print(len(json.load(open(fs[-1]))) if fs else 0)
           " 2>/dev/null || echo 0)
-          git commit -m "🔔 ${TODAY}: ${COUNT}件のシグナル [bot]"
+
+          git commit -m "🔔 ${TODAY}: ${COUNT}件のシグナル検知 [bot]"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts
+      # ────────────────────────────────────────
+      # 8. アーティファクト保存
+      # ────────────────────────────────────────
+      - name: Upload signal artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -92,20 +130,28 @@ jobs:
           path: signals/*.json
           retention-days: 90
 
+      # ────────────────────────────────────────
+      # 9. ジョブサマリー（GitHub Actions UI）
+      # ────────────────────────────────────────
       - name: Job summary
         if: always()
         run: |
-          echo "## 📡 スキャン結果 $(date '+%Y-%m-%d %H:%M JST')" >> $GITHUB_STEP_SUMMARY
+          echo "## 📡 スキャン結果  $(date '+%Y-%m-%d %H:%M JST')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           python - >> $GITHUB_STEP_SUMMARY << 'EOF'
           import json, glob
           files = sorted(glob.glob("signals/*.json"))
           if not files:
               print("シグナルなし"); exit()
           data = json.load(open(files[-1]))
-          print(f"**{len(data)} 件のシグナル**\n")
+          if not data:
+              print("本日はシグナルなし"); exit()
+          print(f"**{len(data)} 件のシグナルを Discord に通知しました**\n")
           print("| ソース | ロール | 銘柄 | 企業 | 落札者 | 案件 |")
           print("|--------|--------|------|------|--------|------|")
           for s in data:
-              role = "自社" if s.get("ticker_role")=="self" else "親会社"
-              print(f"| {s.get('source','')} | {role} | {s.get('ticker','')} | {s.get('company','')} | {s.get('winner','')} | {s.get('project_name','')[:30]} |")
+              role = "自社" if s.get("ticker_role") == "self" else "親会社"
+              print(f"| {s.get('source','')} | {role} | {s.get('ticker','')} "
+                    f"| {s.get('company','')} | {s.get('winner','')} "
+                    f"| {s.get('project_name','')[:35]} |")
           EOF
