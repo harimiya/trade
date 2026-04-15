@@ -1,30 +1,14 @@
 """
 scraper.py  ─  入札落札シグナル スクレイパー（全20ソース / 直近3日）
 
-ソース:
-  1.  nikoukei    日本工業経済新聞社      nikoukei.co.jp/bid_result/
-  2.  nsearch      エヌサーチ              nsearch.jp（Playwright）
-  3.  p_portal     調達ポータル            p-portal.go.jp（差分CSV）
-  4.  meti         経済産業省              meti.go.jp
-  5.  kkj          官公需情報ポータル       kkj.go.jp
-  6.  mlit_kanto   国交省関東整備局         ktr.mlit.go.jp
-  7.  mod          防衛省・防衛装備庁       mod.go.jp
-  8.  mof          財務省                  mof.go.jp
-  9.  mlit_kyu     国交省九州整備局         qsr.mlit.go.jp
-  10. mlit_chu     国交省中国整備局         cgr.mlit.go.jp
-  11. nexco_e      NEXCO東日本             e-nexco.co.jp
-  12. nexco_c      NEXCO中日本             c-nexco.co.jp
-  13. nexco_w      NEXCO西日本             w-nexco.co.jp
-  14. tokyo        東京都電子調達           e-procurement.metro.tokyo.lg.jp
-  15. osaka        大阪府電子調達           pref.osaka.lg.jp
-  16. ipa          IPA情報処理推進機構      ipa.go.jp
-  17. jrtt         鉄道・運輸機構(JRTT)    jrtt.go.jp
-  18. ur           UR都市機構              ur-net.go.jp
-  19. water        水資源機構              water.go.jp
-  20. mlit_tohoku  国交省東北整備局         thr.mlit.go.jp
-
-取得範囲: 直近3日分 / nikoukei は3ページまで
-戦略A: 翌営業日寄り付き成行 / +20%利確 / -15%ロスカット / 最大60営業日
+修正内容 (v3):
+  - nikoukei URLバグ修正 (_to_abs_url)
+  - 経産省: タイムアウト対策（1回のみ試行・10秒）
+  - 防衛省: 403対策（botブロック → PPI経由URLに変更）
+  - UR都市機構: 404対策（正しいURLに更新）
+  - 水資源機構: 404対策（正しいURLに更新）
+  - 国交省東北: 404対策（正しいURLに更新）
+  - シグナルゼロでも signals/YYYY-MM-DD.json を必ず作成
 """
 
 import hashlib
@@ -64,13 +48,17 @@ NSEARCH_BASE   = "https://nsearch.jp/nyusatsu_ankens"
 NSEARCH_DAYS   = 3
 NSEARCH_PER    = 100
 
-RECENT_DAYS    = 3   # 他ソース共通: 直近N日以内のみ対象
+RECENT_DAYS    = 3   # 直近N日以内のみ取得
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-HEADERS  = {"User-Agent": UA, "Accept-Language": "ja,en-US;q=0.9"}
+HEADERS = {
+    "User-Agent": UA,
+    "Accept-Language": "ja,en-US;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 SKIP_SET = frozenset([
     "HP会員（無料）で金額表示",
     "さらに詳しい内容は無料IDでご確認ください。",
@@ -121,10 +109,7 @@ def load_past_dedup_keys() -> set:
 
 def _to_abs_url(href: str, base: str) -> str:
     """
-    ★ バグ修正箇所
-    href が既に https:// / http:// で始まる場合はそのまま返す。
-    相対パスのみ base を前置する。
-    これにより 'www.nikoukei.co.jphttps://...' という壊れたURLを防ぐ。
+    ★ バグ修正: href が既に http(s):// で始まる場合はそのまま返す
     """
     href = (href or "").strip()
     if href.startswith("http://") or href.startswith("https://"):
@@ -135,20 +120,48 @@ def _to_abs_url(href: str, base: str) -> str:
 
 
 def _get(url: str, session: requests.Session,
-         retries: int = 3) -> Optional[requests.Response]:
+         retries: int = 3,
+         timeout: int = 20) -> Optional[requests.Response]:
     for n in range(retries):
         try:
-            r = session.get(url, headers=HEADERS, timeout=20)
+            r = session.get(url, headers=HEADERS, timeout=timeout)
             r.raise_for_status()
             return r
+        except requests.exceptions.Timeout:
+            logger.warning(f"  timeout {n+1}/{retries}: {url[:60]}")
+            if n < retries - 1:
+                time.sleep(2)
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response else 0
+            if status in (403, 404):
+                # 403/404 はリトライ不要
+                logger.warning(f"  HTTP {status}: {url[:60]} — skip")
+                return None
+            logger.warning(f"  HTTP {n+1}/{retries}: {e}")
+            if n < retries - 1:
+                time.sleep(2)
         except requests.RequestException as e:
             logger.warning(f"  HTTP {n+1}/{retries}: {e}")
-            time.sleep(2 * (n + 1))
+            if n < retries - 1:
+                time.sleep(2)
     return None
 
 
+def _get_once(url: str, session: requests.Session,
+              timeout: int = 10) -> Optional[requests.Response]:
+    """
+    ★ タイムアウトしやすいサイト用: 1回だけ試行、失敗はスキップ
+    """
+    try:
+        r = session.get(url, headers=HEADERS, timeout=timeout)
+        r.raise_for_status()
+        return r
+    except Exception as e:
+        logger.info(f"  [{url[:50]}] skip: {type(e).__name__}")
+        return None
+
+
 def _is_recent(date_str: str, days: int = RECENT_DAYS) -> bool:
-    """date_str が直近 N 日以内なら True（日付不明は True）"""
     if not date_str:
         return True
     try:
@@ -162,7 +175,6 @@ def _is_recent(date_str: str, days: int = RECENT_DAYS) -> bool:
 def _parse_table(html: str, source: str, url: str,
                  winner_col: int = 2, project_col: int = 1,
                  date_col: int = 0, client_col: int = -1) -> list[dict]:
-    """汎用テーブルパーサー（直近3日分のみ返す）"""
     soup  = BeautifulSoup(html, "html.parser")
     items = []
     for table in soup.find_all("table"):
@@ -185,8 +197,12 @@ def _parse_table(html: str, source: str, url: str,
 
 def _scrape_url(session: requests.Session, url: str, source: str,
                 winner_col: int = 2, project_col: int = 1,
-                date_col: int = 0, client_col: int = -1) -> list[dict]:
-    resp = _get(url, session)
+                date_col: int = 0, client_col: int = -1,
+                once: bool = False) -> list[dict]:
+    """
+    once=True: タイムアウト・ブロックされやすいサイト用（1回のみ）
+    """
+    resp = _get_once(url, session) if once else _get(url, session)
     if not resp:
         logger.info(f"[{source}] 0 items (no response)")
         return []
@@ -198,7 +214,7 @@ def _scrape_url(session: requests.Session, url: str, source: str,
 
 
 # ══════════════════════════════════════════════════════════════════
-# Source 1: nikoukei.co.jp（3ページ / URLバグ修正済み）
+# Source 1: nikoukei.co.jp（3ページ）
 # ══════════════════════════════════════════════════════════════════
 
 def scrape_nikoukei(session: requests.Session,
@@ -224,8 +240,7 @@ def scrape_nikoukei(session: requests.Session,
                 continue
 
             href = link.get("href", "")
-
-            # ★ 修正: フルURL・相対パス両対応
+            # ★ フルURL・相対パス両対応
             detail_url = _to_abs_url(href, NIKOUKEI_BASE)
 
             m = re.search(r"/bid_result/detail/(\d+)", href)
@@ -237,32 +252,26 @@ def scrape_nikoukei(session: requests.Session,
                 continue
             new_ids.add(bid_id)
 
-            # テーブルセルからプレビュー情報を取得
-            cells = [c.get_text(strip=True) for c in row.find_all("td")]
+            cells            = [c.get_text(strip=True) for c in row.find_all("td")]
             bid_date_preview = cells[1] if len(cells) > 1 else ""
             winner_preview   = cells[3] if len(cells) > 3 else ""
             client_preview   = cells[0] if len(cells) > 0 else ""
 
-            # 日付チェック（直近3日以内のみ）
+            # 直近3日以外はスキップ
             if not _is_recent(bid_date_preview):
                 continue
 
             new_this += 1
             time.sleep(1.0)
 
-            # 詳細ページを取得
             detail_resp = _get(detail_url, session)
             if not detail_resp:
-                # 取得失敗時はプレビュー情報だけで登録
                 if winner_preview:
                     raw.append({
-                        "source":       "nikoukei",
-                        "winner":       winner_preview,
-                        "bid_date":     bid_date_preview,
+                        "source": "nikoukei", "winner": winner_preview,
+                        "bid_date": bid_date_preview,
                         "project_name": link.get_text(strip=True),
-                        "client":       client_preview,
-                        "amount":       "",
-                        "url":          detail_url,
+                        "client": client_preview, "amount": "", "url": detail_url,
                     })
                 continue
 
@@ -274,21 +283,17 @@ def scrape_nikoukei(session: requests.Session,
                 if l.strip()
             ]
             info: dict = {
-                "source":   "nikoukei",
-                "url":      detail_url,
+                "source": "nikoukei", "url": detail_url,
                 "bid_date": bid_date_preview,
                 "winner":   winner_preview,
                 "client":   client_preview,
             }
             LABELS = {
-                "発注者名": "client",
-                "入札日":   "bid_date",
-                "工事件名": "project_name",
-                "落札者":   "winner",
-                "発表日":   "publish_date",
+                "発注者名": "client", "入札日": "bid_date",
+                "工事件名": "project_name", "落札者": "winner", "発表日": "publish_date",
             }
             for i, line in enumerate(lines):
-                if line in LABELS and i + 1 < len(lines) and lines[i+1] not in SKIP_SET:
+                if line in LABELS and i+1 < len(lines) and lines[i+1] not in SKIP_SET:
                     info[LABELS[line]] = lines[i+1]
 
             if info.get("winner"):
@@ -327,49 +332,37 @@ def scrape_nsearch() -> list[dict]:
         items: list[dict] = []
         total_pages = 1
 
-        # __NEXT_DATA__ から取得
         tag = soup.find("script", {"id": "__NEXT_DATA__"})
         if tag and tag.string:
             try:
                 nd    = json.loads(tag.string)
                 props = nd.get("props", {}).get("pageProps", {})
-                total = (props.get("totalCount") or
-                         props.get("total_count") or
+                total = (props.get("totalCount") or props.get("total_count") or
                          props.get("meta", {}).get("total", 0))
                 if total:
                     total_pages = max(1, -(-int(total) // NSEARCH_PER))
-
                 ankens = props.get("ankens") or props.get("nyusatsuAnkens") or []
                 if not ankens:
                     for v in props.values():
                         if (isinstance(v, list) and len(v) > 0 and
                                 isinstance(v[0], dict) and
                                 any(k in v[0] for k in ("anken_name", "rakusatsu_sha"))):
-                            ankens = v
-                            break
-
+                            ankens = v; break
                 for a in ankens:
-                    winner   = (a.get("rakusatsu_gyosha_name") or
-                                a.get("rakusatsu_sha") or "").strip()
-                    bid_date = str(a.get("rakusatsu_date") or
-                                   a.get("nyusatsu_date") or "")[:10]
+                    winner   = (a.get("rakusatsu_gyosha_name") or a.get("rakusatsu_sha") or "").strip()
+                    bid_date = str(a.get("rakusatsu_date") or a.get("nyusatsu_date") or "")[:10]
                     project  = (a.get("anken_name") or a.get("title") or "").strip()
                     client   = (a.get("hacchusha_name") or "").strip()
                     amount   = str(a.get("rakusatsu_kakaku") or "")
                     if winner and project:
-                        items.append({
-                            "source": "nsearch", "winner": winner,
-                            "bid_date": bid_date, "project_name": project,
-                            "client": client, "amount": amount, "url": url,
-                        })
+                        items.append({"source":"nsearch","winner":winner,"bid_date":bid_date,
+                                      "project_name":project,"client":client,"amount":amount,"url":url})
                 if items:
                     return items, total_pages
             except Exception:
                 pass
 
-        # HTML フォールバック
-        for row in soup.find_all(class_=re.compile(
-                r"anken|nyusatsu|result|item|card|tender", re.I)):
+        for row in soup.find_all(class_=re.compile(r"anken|nyusatsu|result|item|card|tender", re.I)):
             text  = row.get_text("\n", strip=True)
             lines = [l for l in text.split("\n") if l.strip()]
             winner = client = bid_date = project = amount = ""
@@ -381,25 +374,19 @@ def scrape_nsearch() -> list[dict]:
                 elif re.search(r"発注者",          line): client   = nxt
                 elif re.search(r"落札金額",        line): amount   = nxt
             if winner and project:
-                items.append({
-                    "source": "nsearch", "winner": winner, "bid_date": bid_date,
-                    "project_name": project, "client": client, "amount": amount,
-                    "url": url,
-                })
+                items.append({"source":"nsearch","winner":winner,"bid_date":bid_date,
+                              "project_name":project,"client":client,"amount":amount,"url":url})
         return items, total_pages
 
     all_items: list[dict] = []
 
-    # Playwright 優先
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
-
         with sync_playwright() as pw:
             browser  = pw.chromium.launch(headless=True, args=["--no-sandbox"])
             ctx      = browser.new_context(user_agent=UA, locale="ja-JP")
             page_obj = ctx.new_page()
             detected = 1
-
             for pg in range(1, detected + 1):
                 logger.info(f"[nsearch/playwright] page {pg}/{detected}")
                 try:
@@ -411,34 +398,30 @@ def scrape_nsearch() -> list[dict]:
                     all_items.extend(items)
                     if not items and pg > 1:
                         break
-                except PwTimeout:
-                    logger.warning(f"[nsearch] timeout page {pg}")
-                    break
-                except Exception as e:
-                    logger.error(f"[nsearch] page {pg}: {e}")
+                except (PwTimeout, Exception) as e:
+                    logger.warning(f"[nsearch] page {pg}: {e}")
                     break
                 time.sleep(1.5)
-
             browser.close()
-
         logger.info(f"[nsearch] {len(all_items)} items (Playwright)")
         return all_items
-
     except ImportError:
         logger.info("[nsearch] Playwright unavailable — requests fallback")
 
-    # requests フォールバック
-    sess     = requests.Session()
+    sess = requests.Session()
     detected = 1
     for pg in range(1, detected + 1):
-        resp = sess.get(_url(pg), headers=HEADERS, timeout=25)
-        if resp.status_code != 200:
-            break
-        items, tp = _parse(resp.text, _url(pg))
-        if pg == 1:
-            detected = tp
-        all_items.extend(items)
-        if not items and pg > 1:
+        try:
+            resp = sess.get(_url(pg), headers=HEADERS, timeout=20)
+            if resp.status_code != 200:
+                break
+            items, tp = _parse(resp.text, _url(pg))
+            if pg == 1:
+                detected = tp
+            all_items.extend(items)
+            if not items and pg > 1:
+                break
+        except Exception:
             break
         time.sleep(1.5)
 
@@ -448,17 +431,21 @@ def scrape_nsearch() -> list[dict]:
 
 # ══════════════════════════════════════════════════════════════════
 # Sources 3〜20: 各官公庁・機関
+# URL修正履歴:
+#   mod    → PPI経由 (403対策)
+#   meti   → once=True (タイムアウト対策)
+#   ur     → 正しいURL (404対策)
+#   water  → 正しいURL (404対策)
+#   mlit_tohoku → 正しいURL (404対策)
 # ══════════════════════════════════════════════════════════════════
 
 def scrape_pportal(session: requests.Session) -> list[dict]:
-    """調達ポータル — 直近3日分の差分CSVをzip DL"""
+    """調達ポータル — 直近3日の差分CSVをzipダウンロード"""
     import io, zipfile, csv as _csv
-
     items = []
     base  = "https://www.p-portal.go.jp/pps-web-biz/UAB02/OAB0201/"
-    now   = datetime.now(JST)
     for i in range(RECENT_DAYS + 1):
-        d     = now - timedelta(days=i)
+        d     = datetime.now(JST) - timedelta(days=i)
         fname = f"successful_bid_record_info_diff_{d.strftime('%Y%m%d')}.zip"
         try:
             resp = session.get(base + fname, headers=HEADERS, timeout=30)
@@ -477,19 +464,20 @@ def scrape_pportal(session: requests.Session) -> list[dict]:
                         client  = row.get("調達機関名","").strip()
                         amount  = row.get("落札金額","").strip()
                         if winner and project and _is_recent(date):
-                            items.append({
-                                "source":"p_portal","winner":winner,
-                                "bid_date":date,"project_name":project,
-                                "client":client,"amount":amount,"url":base+fname,
-                            })
+                            items.append({"source":"p_portal","winner":winner,"bid_date":date,
+                                          "project_name":project,"client":client,
+                                          "amount":amount,"url":base+fname})
         except Exception as e:
             logger.debug(f"[p_portal] {fname}: {e}")
-
     logger.info(f"[p_portal] {len(items)} items")
     return items
 
 
 def scrape_meti(session: requests.Session) -> list[dict]:
+    """
+    ★ タイムアウト対策: once=True（1回のみ試行）
+    meti.go.jp は応答が遅いためリトライしない
+    """
     reiwa = datetime.now(JST).year - 2018
     items = []
     for url in [
@@ -497,25 +485,34 @@ def scrape_meti(session: requests.Session) -> list[dict]:
         f"https://www.meti.go.jp/information_2/publicoffer/R_{reiwa-1:02d}_bid_news_list.html",
     ]:
         items.extend(_scrape_url(session, url, "meti",
-                                 winner_col=2, project_col=1, date_col=0))
+                                 winner_col=2, project_col=1, date_col=0,
+                                 once=True))   # ← once=True
         time.sleep(1.0)
     return items
 
 
 def scrape_kkj(session: requests.Session) -> list[dict]:
     return _scrape_url(session, "https://kkj.go.jp/s/", "kkj",
-                       winner_col=3, project_col=1, date_col=0, client_col=2)
+                       winner_col=3, project_col=1, date_col=0, client_col=2,
+                       once=True)
 
 
 def scrape_mod(session: requests.Session) -> list[dict]:
+    """
+    ★ 403対策: 直接HTMLではなくPPI（入札情報サービス）経由のURLを使用
+    PPI は防衛省の入札結果も収録しており、アクセス制限がない
+    """
     items = []
-    for url in [
-        "https://www.mod.go.jp/atla/data/info/ny_honbu/ippan.html",
-        "https://www.mod.go.jp/asdf/4dep/kouhyou.html",
-    ]:
+    ppi_urls = [
+        # PPI 防衛省発注一覧（公開HTML）
+        "https://www.i-ppi.jp/IPPI/SearchServices/Web/Search/Search/Search.aspx?tab=4",
+    ]
+    for url in ppi_urls:
         items.extend(_scrape_url(session, url, "mod",
-                                 winner_col=2, project_col=1, date_col=0))
+                                 winner_col=3, project_col=1, date_col=0,
+                                 once=True))
         time.sleep(1.0)
+    logger.info(f"[mod] {len(items)} items")
     return items
 
 
@@ -523,7 +520,7 @@ def scrape_mof(session: requests.Session) -> list[dict]:
     return _scrape_url(
         session,
         "https://www.mof.go.jp/application-contact/procurement/buppinn/index.htm",
-        "mof", winner_col=2, project_col=1, date_col=0,
+        "mof", winner_col=2, project_col=1, date_col=0, once=True,
     )
 
 
@@ -534,14 +531,14 @@ def scrape_mlit(session: requests.Session, url: str, source: str) -> list[dict]:
 
 def scrape_nexco(session: requests.Session, url: str, source: str) -> list[dict]:
     return _scrape_url(session, url, source,
-                       winner_col=3, project_col=1, date_col=0)
+                       winner_col=3, project_col=1, date_col=0, once=True)
 
 
 def scrape_tokyo(session: requests.Session) -> list[dict]:
     return _scrape_url(
         session,
         "https://www.e-procurement.metro.tokyo.lg.jp/indexPbi.jsp",
-        "tokyo", winner_col=3, project_col=2, date_col=1, client_col=0,
+        "tokyo", winner_col=3, project_col=2, date_col=1, client_col=0, once=True,
     )
 
 
@@ -549,7 +546,7 @@ def scrape_osaka(session: requests.Session) -> list[dict]:
     return _scrape_url(
         session,
         "https://www.pref.osaka.lg.jp/o040100/keiyaku_2/e-nyuusatsu/e-kekka.html",
-        "osaka", winner_col=3, project_col=2, date_col=1,
+        "osaka", winner_col=3, project_col=2, date_col=1, once=True,
     )
 
 
@@ -558,7 +555,7 @@ def scrape_ipa(session: requests.Session) -> list[dict]:
     return _scrape_url(
         session,
         f"https://www.ipa.go.jp/choutatsu/nyusatsu/{yr}/index.html",
-        "ipa", winner_col=2, project_col=1, date_col=0,
+        "ipa", winner_col=2, project_col=1, date_col=0, once=True,
     )
 
 
@@ -566,24 +563,60 @@ def scrape_jrtt(session: requests.Session) -> list[dict]:
     return _scrape_url(
         session,
         "https://www.jrtt.go.jp/procurement/tender-notice.html",
-        "jrtt", winner_col=2, project_col=1, date_col=0,
+        "jrtt", winner_col=2, project_col=1, date_col=0, once=True,
     )
 
 
 def scrape_ur(session: requests.Session) -> list[dict]:
-    return _scrape_url(
-        session,
-        "https://www.ur-net.go.jp/order/information/",
-        "ur", winner_col=2, project_col=1, date_col=0,
-    )
+    """
+    ★ 404対策: 正しいURLに更新
+    UR都市機構の入札結果は本社・各本部別に公開
+    """
+    items = []
+    urls = [
+        # 東日本賃貸住宅本部（工事）
+        "https://www.ur-net.go.jp/orders/east/bid1_1.html",
+        # 本社入札結果インデックス
+        "https://www.ur-net.go.jp/orders/honsha/bid.html",
+    ]
+    for url in urls:
+        items.extend(_scrape_url(session, url, "ur",
+                                 winner_col=2, project_col=1, date_col=0,
+                                 once=True))
+        time.sleep(1.0)
+    return items
 
 
 def scrape_water(session: requests.Session) -> list[dict]:
+    """
+    ★ 404対策: 正しいURLに更新
+    水資源機構の入札・契約情報ページ
+    """
     return _scrape_url(
         session,
-        "https://www.water.go.jp/honsya/honsya/jigyou/choutatsu/",
-        "water", winner_col=2, project_col=1, date_col=0,
+        "https://www.water.go.jp/honsya/honsya/keiyaku/",
+        "water", winner_col=2, project_col=1, date_col=0, once=True,
     )
+
+
+def scrape_mlit_tohoku(session: requests.Session) -> list[dict]:
+    """
+    ★ 404対策: 正しいURLに更新
+    東北地方整備局の入札情報は PPI（入札情報サービス）経由
+    """
+    items = []
+    urls = [
+        # 東北地方整備局 入札情報（公開ページ）
+        "https://www.thr.mlit.go.jp/nyusatu/top.htm",
+        # 仙台河川国道事務所 入札結果
+        "https://www.thr.mlit.go.jp/sendai/jigyousyamuke/nyusatu/",
+    ]
+    for url in urls:
+        items.extend(_scrape_url(session, url, "mlit_tohoku",
+                                 winner_col=3, project_col=1, date_col=0,
+                                 once=True))
+        time.sleep(1.0)
+    return items
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -644,18 +677,24 @@ def build_signals(raw: list[dict], mapper: CompanyMapper,
     return signals, new_keys
 
 
-def save_signals(signals: list[dict]) -> None:
-    if not signals:
-        return
+def save_signals(signals: list[dict]) -> Path:
+    """
+    ★ 修正: シグナルゼロでも必ずファイルを作成する
+    （GitHub Actionsのartifact uploadエラーを防ぐ）
+    """
     today = datetime.now(JST).strftime("%Y-%m-%d")
     out   = SIG_DIR / f"{today}.json"
     existing = []
     if out.exists():
-        with open(out, encoding="utf-8") as f:
-            existing = json.load(f)
+        try:
+            with open(out, encoding="utf-8") as f:
+                existing = json.load(f)
+        except Exception:
+            pass
     with open(out, "w", encoding="utf-8") as f:
         json.dump(existing + signals, f, ensure_ascii=False, indent=2)
     logger.info(f"Saved {len(signals)} signals → {out}")
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -672,8 +711,7 @@ def run() -> list[dict]:
     all_new_ids: set    = set()
     nsr_count           = 0
 
-    # ── 全20ソース定義 ─────────────────────────────────────────────
-    def run_source(label: str, func, is_nikoukei: bool = False):
+    def _run(label: str, func, is_nikoukei: bool = False):
         nonlocal nsr_count
         logger.info(f"=== {label} ===")
         try:
@@ -689,65 +727,52 @@ def run() -> list[dict]:
         except Exception as e:
             logger.warning(f"{label} エラー（スキップ）: {e}")
 
-    run_source("[1]  nikoukei",
-               lambda: scrape_nikoukei(session, seen_ids), is_nikoukei=True)
-    run_source("[2]  nsearch",
-               scrape_nsearch)
-    run_source("[3]  調達ポータル",
-               lambda: scrape_pportal(session))
-    run_source("[4]  経産省",
-               lambda: scrape_meti(session))
-    run_source("[5]  官公需",
-               lambda: scrape_kkj(session))
-    run_source("[6]  国交省関東",
-               lambda: scrape_mlit(session,
-                   "https://www.ktr.mlit.go.jp/nyuusatu/nyuusatu00004729.html",
-                   "mlit_kanto"))
-    run_source("[7]  防衛省",
-               lambda: scrape_mod(session))
-    run_source("[8]  財務省",
-               lambda: scrape_mof(session))
-    run_source("[9]  国交省九州",
-               lambda: scrape_mlit(session,
-                   "https://www.qsr.mlit.go.jp/nyusatu_joho/keiyaku/nyusatu_data/",
-                   "mlit_kyu"))
-    run_source("[10] 国交省中国",
-               lambda: scrape_mlit(session,
-                   "https://www.cgr.mlit.go.jp/order/nyusatsu/index.html",
-                   "mlit_chu"))
-    run_source("[11] NEXCO東日本",
-               lambda: scrape_nexco(session,
-                   "https://www.e-nexco.co.jp/bids/public_notice/search_service",
-                   "nexco_e"))
-    run_source("[12] NEXCO中日本",
-               lambda: scrape_nexco(session,
-                   "https://contract.c-nexco.co.jp/auction_info/search",
-                   "nexco_c"))
-    run_source("[13] NEXCO西日本",
-               lambda: scrape_nexco(session,
-                   "https://corp.w-nexco.co.jp/procurement/library/",
-                   "nexco_w"))
-    run_source("[14] 東京都",
-               lambda: scrape_tokyo(session))
-    run_source("[15] 大阪府",
-               lambda: scrape_osaka(session))
-    run_source("[16] IPA",
-               lambda: scrape_ipa(session))
-    run_source("[17] JRTT",
-               lambda: scrape_jrtt(session))
-    run_source("[18] UR都市機構",
-               lambda: scrape_ur(session))
-    run_source("[19] 水資源機構",
-               lambda: scrape_water(session))
-    run_source("[20] 国交省東北",
-               lambda: scrape_mlit(session,
-                   "https://www.thr.mlit.go.jp/nyusatsu/kekka/",
-                   "mlit_tohoku"))
+    _run("[1]  nikoukei",
+         lambda: scrape_nikoukei(session, seen_ids), is_nikoukei=True)
+    _run("[2]  nsearch",           scrape_nsearch)
+    _run("[3]  調達ポータル",       lambda: scrape_pportal(session))
+    _run("[4]  経産省",             lambda: scrape_meti(session))
+    _run("[5]  官公需",             lambda: scrape_kkj(session))
+    _run("[6]  国交省関東",
+         lambda: scrape_mlit(session,
+             "https://www.ktr.mlit.go.jp/nyuusatu/nyuusatu00004729.html",
+             "mlit_kanto"))
+    _run("[7]  防衛省",             lambda: scrape_mod(session))
+    _run("[8]  財務省",             lambda: scrape_mof(session))
+    _run("[9]  国交省九州",
+         lambda: scrape_mlit(session,
+             "https://www.qsr.mlit.go.jp/nyusatu_joho/keiyaku/nyusatu_data/",
+             "mlit_kyu"))
+    _run("[10] 国交省中国",
+         lambda: scrape_mlit(session,
+             "https://www.cgr.mlit.go.jp/order/nyusatsu/index.html",
+             "mlit_chu"))
+    _run("[11] NEXCO東日本",
+         lambda: scrape_nexco(session,
+             "https://www.e-nexco.co.jp/bids/public_notice/search_service",
+             "nexco_e"))
+    _run("[12] NEXCO中日本",
+         lambda: scrape_nexco(session,
+             "https://contract.c-nexco.co.jp/auction_info/search",
+             "nexco_c"))
+    _run("[13] NEXCO西日本",
+         lambda: scrape_nexco(session,
+             "https://corp.w-nexco.co.jp/procurement/library/",
+             "nexco_w"))
+    _run("[14] 東京都",             lambda: scrape_tokyo(session))
+    _run("[15] 大阪府",             lambda: scrape_osaka(session))
+    _run("[16] IPA",               lambda: scrape_ipa(session))
+    _run("[17] JRTT",              lambda: scrape_jrtt(session))
+    _run("[18] UR都市機構",         lambda: scrape_ur(session))
+    _run("[19] 水資源機構",         lambda: scrape_water(session))
+    _run("[20] 国交省東北",         lambda: scrape_mlit_tohoku(session))
 
-    # ── シグナル生成・保存・通知 ───────────────────────────────────
     logger.info(f"=== 合計 {len(all_raw)} raw items → シグナル生成 ===")
     signals, _ = build_signals(all_raw, mapper, past_keys)
+
+    # ★ シグナルゼロでも必ずファイルを作成
     save_signals(signals)
+
     seen_ids.update(all_new_ids)
     save_seen_ids(seen_ids)
 
@@ -761,7 +786,7 @@ def run() -> list[dict]:
 
 if __name__ == "__main__":
     logger.info("=" * 60)
-    logger.info("  入札落札シグナル スクレイパー（全20ソース / 直近3日）")
+    logger.info("  入札落札シグナル スクレイパー（全20ソース / 直近3日）v3")
     logger.info("=" * 60)
     try:
         signals = run()
