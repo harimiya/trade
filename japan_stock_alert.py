@@ -5,7 +5,7 @@
 
 【スクリーニング条件】バックテスト最適化済み（勝率62.3% / 平均+6.10%）
 
-  ① 前日比 +5?15%（急騰、ただしストップ高直後の過熱は除外）
+  ① 前日比 +5〜15%（急騰、ただしストップ高直後の過熱は除外）
   ② 出来高が20日平均の 2.0倍以上
   ③ 前日出来高も20日平均の 1.5倍以上（2日連続の盛り上がり）
   ④ シグナル後1営業日、終値がシグナル日終値以上を維持
@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 def calc_estimated_sell_date(entry_date: date) -> date:
     """
-    エントリー日から60暦日後以降の最初の月?金を返す。
+    エントリー日から60暦日後以降の最初の月〜金を返す。
     （祝日は考慮しないが実用上の目安として表示）
     """
     d = entry_date + timedelta(days=HOLD_CALENDAR_DAYS)
@@ -97,7 +97,7 @@ def is_nikkei_above_ma75() -> bool:
         result = close > ma75
         log.info(
             f"日経平均: {close:,.0f} / 75MA: {ma75:,.0f} "
-            f"→ {'?通過' if result else '?市場フィルターNG'}"
+            f"→ {'✅通過' if result else '❌市場フィルターNG'}"
         )
         return result
     except Exception as e:
@@ -170,21 +170,21 @@ def check_high_breakout(hist: pd.DataFrame, sig_idx: int) -> tuple[bool, str]:
     if not past_all.empty:
         all_time_high = float(past_all["High"].max())
         if close_val > all_time_high:
-            return True, "  上場来高値更新"
+            return True, "🌟 上場来高値更新"
 
     # ── 3年高値更新チェック ──
     cutoff_3y = signal_date - pd.DateOffset(years=3)
     past_3y   = past_all[past_all.index >= cutoff_3y]
     if not past_3y.empty and close_val > float(past_3y["High"].max()):
-        return True, "  3年高値更新"
+        return True, "🏆 3年高値更新"
 
     # ── 2年高値更新チェック（メイン条件）──
     cutoff_2y = signal_date - pd.DateOffset(years=2)
     past_2y   = past_all[past_all.index >= cutoff_2y]
     if not past_2y.empty and close_val > float(past_2y["High"].max()):
-        return True, "  2年高値更新"
+        return True, "🥇 2年高値更新"
 
-    return False, "  高値更新なし"
+    return False, "📊 高値更新なし"
 
 
 # ──────────────────────────────────────────────
@@ -199,14 +199,17 @@ def screen_ticker(ticker: str, today: date, market_name: str, min_market_cap: in
 
     【指値推奨価格の計算】
     B2: 現在の5日MA価格 → 5日MAタッチで指値買い
-    C1: シグナル後5?15営業日（≒7?21暦日）の反発転換翌日成行
-        today基準で +4?+18暦日のウィンドウ
-    C2: シグナル後5?20営業日（≒7?28暦日）の反発転換翌日成行
-        today基準で +4?+25暦日のウィンドウ
+    C1: シグナル後5〜15営業日（≒7〜21暦日）の反発転換翌日成行
+        today基準で +4〜+18暦日のウィンドウ
+    C2: シグナル後5〜20営業日（≒7〜28暦日）の反発転換翌日成行
+        today基準で +4〜+25暦日のウィンドウ
     """
     try:
         tk   = yf.Ticker(ticker)
-        hist = tk.history(period="max")   # 上場来高値チェックのためmax取得
+        hist_raw = tk.history(period="max")   # 上場来高値チェックのためmax取得
+
+        # NaN対策: Close/Volume/Open が NaN の行を除去してから処理する
+        hist = hist_raw.dropna(subset=["Close", "Volume"])
 
         required = VOL_MA_DAYS + SUSTAINED_DAYS + 5
         if hist.empty or len(hist) < required:
@@ -219,7 +222,7 @@ def screen_ticker(ticker: str, today: date, market_name: str, min_market_cap: in
         if sig_prev == 0:
             return None
 
-        # ── ①: 前日比 +5?15% ──
+        # ── ①: 前日比 +5〜15% ──
         pct_chg = (sig_close - sig_prev) / sig_prev * 100
         if not (MIN_PRICE_CHG_LOW <= pct_chg < MIN_PRICE_CHG_HIGH):
             return None
@@ -254,10 +257,13 @@ def screen_ticker(ticker: str, today: date, market_name: str, min_market_cap: in
         if mkt_cap is None or mkt_cap < min_market_cap:
             return None
 
-        # ── B2: 5日MA指値価格 ──
-        ma5_val = float(hist["Close"].rolling(5).mean().iloc[-1])
-        # 5日MAがシグナル日終値より高い場合（MA上昇中）は少し下を目安に
-        b2_limit = round(ma5_val, 0)
+        # ── B2: 5日MA指値価格（NaN対策: dropna後の最終値を使用）──
+        ma5_series = hist["Close"].rolling(5).mean().dropna()
+        if ma5_series.empty:
+            b2_limit = round(confirm_close * 0.97, 0)   # フォールバック: 確認日終値-3%
+        else:
+            ma5_val  = float(ma5_series.iloc[-1])
+            b2_limit = round(ma5_val, 0)
 
         # ── C1/C2: 監視ウィンドウ日付（today基準）──
         # シグナル日はtoday-2営業日≒today-3暦日
@@ -314,7 +320,7 @@ def format_market_cap(cap: float) -> str:
 
 
 def build_discord_payload(results: list[dict], run_date: str, nikkei_ok: bool) -> dict:
-    nk_badge = "  日経MA上" if nikkei_ok else "  日経MA下（警戒）"
+    nk_badge = "🟢 日経MA上" if nikkei_ok else "🔴 日経MA下（警戒）"
 
     if not results:
         description = "本日の対象銘柄はありませんでした。"
@@ -322,33 +328,33 @@ def build_discord_payload(results: list[dict], run_date: str, nikkei_ok: bool) -
     else:
         lines = []
         for r in results:
-            trend    = " " if r["sustain_chg"] >= 0 else " "
+            trend    = "📈" if r["sustain_chg"] >= 0 else "📉"
             buy_str  = r["buy_date"].strftime("%Y/%m/%d")
             sell_str = r["sell_date"].strftime("%Y/%m/%d")
 
             # ── 指値推奨セクション ──
-            b2_str  = f"\{r['b2_limit']:,.0f}"
+            b2_str  = f"¥{r['b2_limit']:,.0f}"
             c1s_str = r["c1_watch_start"].strftime("%m/%d")
             c1e_str = r["c1_watch_end"].strftime("%m/%d")
             c2e_str = r["c2_watch_end"].strftime("%m/%d")
 
             lines.append(
                 f"**{r['name']}** (`{r['ticker']}`）　{r['market']}\n"
-                f"　{r['high_badge']}　? 1日高値維持確認済み\n"
-                f"　  急騰: **+{r['sig_pct_chg']}%**　"
+                f"　{r['high_badge']}　✅ 1日高値維持確認済み\n"
+                f"　🔔 急騰: **+{r['sig_pct_chg']}%**　"
                 f"出来高: **{r['vol_ratio']}倍**（前日: {r['prev_vol_ratio']}倍）\n"
-                f"　{trend} 確認日終値: \{r['confirm_close']:,.0f}　"
+                f"　{trend} 確認日終値: ¥{r['confirm_close']:,.0f}　"
                 f"（シグナル比: {r['sustain_chg']:+.2f}%）　"
                 f"時価総額: {format_market_cap(r['market_cap'])}\n"
-                f"　  **即時エントリー: {buy_str} 寄り付き成行**\n"
-                f"　  **売却予定日: {sell_str}（60日後・最初の営業日引け）**\n"
+                f"　🛒 **即時エントリー: {buy_str} 寄り付き成行**\n"
+                f"　💰 **売却予定日: {sell_str}（60日後・最初の営業日引け）**\n"
                 f"　──────────────────────\n"
-                f"　  **指値推奨価格（初押し狙い）**\n"
-                f"　  B2｜5日MAタッチ指値: **{b2_str}**\n"
+                f"　📌 **指値推奨価格（初押し狙い）**\n"
+                f"　🔹 B2｜5日MAタッチ指値: **{b2_str}**\n"
                 f"　　　→ 5日移動平均線まで下落した日の翌朝寄り付き成行\n"
-                f"　  C1｜反発転換待ち: **{c1s_str}?{c1e_str} の間を監視**\n"
+                f"　🔸 C1｜反発転換待ち: **{c1s_str}〜{c1e_str} の間を監視**\n"
                 f"　　　→ 前日比プラス転換した翌朝寄り付き成行（勝率67.6%）\n"
-                f"　  C2｜反発転換待ち: **{c1s_str}?{c2e_str} の間を監視**\n"
+                f"　🔸 C2｜反発転換待ち: **{c1s_str}〜{c2e_str} の間を監視**\n"
                 f"　　　→ 前日比プラス転換した翌朝寄り付き成行（勝率67.6%）"
             )
         description = "\n\n".join(lines)
@@ -363,7 +369,7 @@ def build_discord_payload(results: list[dict], run_date: str, nikkei_ok: bool) -
     return {
         "embeds": [
             {
-                "title": f"  東証プライム・高値更新初押し戦略｜{run_date}　{nk_badge}",
+                "title": f"📊 東証プライム・高値更新初押し戦略｜{run_date}　{nk_badge}",
                 "description": description,
                 "color": color,
                 "footer": {
@@ -371,7 +377,7 @@ def build_discord_payload(results: list[dict], run_date: str, nikkei_ok: bool) -
                         "即時: 寄り付き成行（勝率63.1%/平均+7.13%）　"
                         "B2: 5日MAタッチ指値（勝率66.2%）　"
                         "C1/C2: 反発転換翌朝成行（勝率67.6%）　"
-                        "| 条件: 急騰+5?15%/出来高2倍/前日出来高1.5倍/"
+                        "| 条件: 急騰+5〜15%/出来高2倍/前日出来高1.5倍/"
                         "1日高値維持/2年or上場来高値更新/日経>75MA/プライム1000億円以上"
                     )
                 },
@@ -406,7 +412,7 @@ def main():
     # ── 日経平均フィルター ──
     nikkei_ok = is_nikkei_above_ma75()
     if not nikkei_ok:
-        log.warning("?? 日経平均が75日MA以下 → 警告付きで通知継続")
+        log.warning("⚠️ 日経平均が75日MA以下 → 警告付きで通知継続")
 
     # ── 全市場銘柄リスト取得 ──
     ticker_list = fetch_all_tickers()   # [(ticker, market_name, min_cap), ...]
@@ -416,7 +422,7 @@ def main():
         result = screen_ticker(ticker, today, market_name, min_cap)
         if result:
             log.info(
-                f"? HIT: {result['name']} ({ticker}) [{result['market']}] "
+                f"✅ HIT: {result['name']} ({ticker}) [{result['market']}] "
                 f"+{result['sig_pct_chg']}% 出来高{result['vol_ratio']}倍 "
                 f"{result['high_badge']} "
                 f"買:{result['buy_date']} 売:{result['sell_date']}"
