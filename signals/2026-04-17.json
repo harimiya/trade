@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-04-17T04:24:04.437046+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/04/15",
+    "publish_date": "2026/04/16",
+    "client": "神奈川県横浜市財政局",
+    "project_name": "金沢工場ボイラー設備定期検査等整備工事",
+    "winner": "ＪＦＥエンジニアリング",
+    "ticker_role": "parent",
+    "company": "JFEホールディングス",
+    "parent": "JFEホールディングス",
+    "ticker": "5411.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013592823",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
