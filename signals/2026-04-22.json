@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-04-22T04:20:44.254055+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/04/21",
+    "publish_date": "2026/04/21",
+    "client": "長野県長野市",
+    "project_name": "柳町中学校外照明器具交換業務委託",
+    "winner": "日本電気通信工業",
+    "ticker_role": "parent",
+    "company": "NEC",
+    "parent": "NEC",
+    "ticker": "6701.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013596777",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
