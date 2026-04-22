@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-04-23T04:21:57.592845+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/04/22",
+    "publish_date": "2026/04/22",
+    "client": "東京都八王子市",
+    "project_name": "戸吹清掃工場焼却設備定期修繕",
+    "winner": "ＪＦＥエンジニアリング",
+    "ticker_role": "parent",
+    "company": "JFEホールディングス",
+    "parent": "JFEホールディングス",
+    "ticker": "5411.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013597855",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
