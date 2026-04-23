@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-04-24T04:18:58.163570+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/04/23",
+    "publish_date": "2026/04/23",
+    "client": "神奈川県川崎市上下水道局",
+    "project_name": "等々力水処理センター建設電気その５８工事［総合評価］",
+    "winner": "東芝",
+    "ticker_role": "self",
+    "company": "東芝",
+    "parent": "東芝",
+    "ticker": "6502.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013600194",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
