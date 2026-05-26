@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-05-27T05:14:55.770561+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/05/25",
+    "publish_date": "2026/05/26",
+    "client": "国土交通省鹿島港湾空港整備事務所",
+    "project_name": "令和８年度鹿島港外港地区中央防波堤消波等工事［総合評価］",
+    "winner": "東洋建設",
+    "ticker_role": "self",
+    "company": "東洋建設",
+    "parent": "東洋建設",
+    "ticker": "1890.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013632311",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
