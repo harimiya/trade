@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-05-30T05:32:51.758122+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/05/28",
+    "publish_date": "2026/05/29",
+    "client": "東京都交通局",
+    "project_name": "大江戸線木場車庫き電開閉所高速気中遮断器ほか部品交換工事",
+    "winner": "東芝",
+    "ticker_role": "self",
+    "company": "東芝",
+    "parent": "東芝",
+    "ticker": "6502.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013637981",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
