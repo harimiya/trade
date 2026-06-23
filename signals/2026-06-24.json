@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-06-24T05:12:11.856250+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/06/22",
+    "publish_date": "2026/06/23",
+    "client": "東京都水道局",
+    "project_name": "令和８年度本郷給水所外３０か所電気設備保守業務委託",
+    "winner": "メタウォーター",
+    "ticker_role": "self",
+    "company": "メタウォーター",
+    "parent": "メタウォーター",
+    "ticker": "9551.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013671782",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
