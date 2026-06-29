@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-06-30T05:04:54.236126+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/06/29",
+    "publish_date": "2026/06/29",
+    "client": "東京都財務局",
+    "project_name": "都庁舎（８）サンクンプラザほか改修工事",
+    "winner": "大成建設",
+    "ticker_role": "self",
+    "company": "大成建設",
+    "parent": "大成建設",
+    "ticker": "1801.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013681381",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
