@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-07-02T05:02:39.975678+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/07/01",
+    "publish_date": "2026/07/01",
+    "client": "東京都水道局",
+    "project_name": "王子給水所（仮称）ポンプ棟築造工事（その１）［総合評価］",
+    "winner": "大成建設／鉄建建設／関電工ＪＶ",
+    "ticker_role": "self",
+    "company": "大成建設",
+    "parent": "大成建設",
+    "ticker": "1801.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013685879",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
