@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-07-03T04:36:48.436990+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/07/02",
+    "publish_date": "2026/07/02",
+    "client": "東京都財務局",
+    "project_name": "新末広橋（８）Ｐ２橋脚耐震補強工事",
+    "winner": "東洋建設",
+    "ticker_role": "self",
+    "company": "東洋建設",
+    "parent": "東洋建設",
+    "ticker": "1890.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013687675",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
