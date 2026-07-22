@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-07-23T04:27:08.060126+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/07/22",
+    "publish_date": "2026/07/22",
+    "client": "栃木県道路公社",
+    "project_name": "ＥＴＣ中央装置更新工事（日光宇都宮道路）",
+    "winner": "日立製作所",
+    "ticker_role": "self",
+    "company": "日立製作所",
+    "parent": "日立製作所",
+    "ticker": "6501.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013711993",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
