@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-07-31T04:38:38.976097+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/07/30",
+    "publish_date": "2026/07/30",
+    "client": "大宮地方環境整備組合",
+    "project_name": "プラスチック資源化施設建設工事",
+    "winner": "メタウォーター／浅川建設ＪＶ",
+    "ticker_role": "self",
+    "company": "メタウォーター",
+    "parent": "メタウォーター",
+    "ticker": "9551.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013722182",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
