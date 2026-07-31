@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-08-01T04:40:00.576920+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/07/30",
+    "publish_date": "2026/07/31",
+    "client": "東京港埠頭(株)",
+    "project_name": "令和８年度大井埠頭ほか１箇所ヤード照明設備改修工事",
+    "winner": "パワー",
+    "ticker_role": "parent",
+    "company": "三菱重工業",
+    "parent": "三菱重工業",
+    "ticker": "7011.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013724146",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
