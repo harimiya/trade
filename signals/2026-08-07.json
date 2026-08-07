@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-08-07T09:06:26.415329+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/08/05",
+    "publish_date": "2026/08/06",
+    "client": "東京都交通局",
+    "project_name": "都営地下鉄４線光伝送装置ほか部品交換",
+    "winner": "日本電気",
+    "ticker_role": "parent",
+    "company": "NEC",
+    "parent": "NEC",
+    "ticker": "6701.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013730393",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
