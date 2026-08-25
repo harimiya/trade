@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-08-26T03:43:48.491120+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/08/25",
+    "publish_date": "2026/08/25",
+    "client": "埼玉県さいたま市",
+    "project_name": "次期消防緊急情報システム（指令・情報）整備業務",
+    "winner": "富士通Ｊａｐａｎ／ＦＬＣＳＪＶ",
+    "ticker_role": "self",
+    "company": "富士通",
+    "parent": "富士通",
+    "ticker": "6702.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013746231",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
