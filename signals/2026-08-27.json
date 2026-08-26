@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-08-27T04:51:16.609240+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/08/26",
+    "publish_date": "2026/08/26",
+    "client": "東京都水道局",
+    "project_name": "金町浄水場第三取水塔等耐震補強修正設計委託",
+    "winner": "日本工営",
+    "ticker_role": "self",
+    "company": "日本工営",
+    "parent": "日本工営",
+    "ticker": "1954.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013748761",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
