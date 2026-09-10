@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-09-11T05:38:03.559338+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/09/10",
+    "publish_date": "2026/09/10",
+    "client": "東京都財務局",
+    "project_name": "旧橋撤去工事（その３）（８南西－日野橋）",
+    "winner": "若築建設／成友興業ＪＶ",
+    "ticker_role": "self",
+    "company": "若築建設",
+    "parent": "若築建設",
+    "ticker": "1888.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013767474",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
