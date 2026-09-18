@@ -1,0 +1,24 @@
+[
+  {
+    "detected_at": "2026-09-19T05:39:04.326484+09:00",
+    "source": "nikoukei",
+    "bid_date": "2026/09/17",
+    "publish_date": "2026/09/18",
+    "client": "東京都南多摩西部建設事務所",
+    "project_name": "立日橋外１橋補修工事（８南西建）",
+    "winner": "化工建設",
+    "ticker_role": "self",
+    "company": "千代田化工建設",
+    "parent": "千代田化工建設",
+    "ticker": "6366.T",
+    "amount": "",
+    "source_url": "https://www.nikoukei.co.jp/bid_result/detail/013776467",
+    "strategy": "A",
+    "action": "BUY",
+    "timing": "翌営業日 寄り付き成行",
+    "tp_pct": 20,
+    "sl_pct": -15,
+    "max_hold_days": 60,
+    "exit_rule": "+20%利確 / -15%ロスカット / 最大60営業日"
+  }
+]
