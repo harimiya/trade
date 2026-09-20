@@ -29,4 +29,4 @@ jobs:
       - name: Run Breakout Check Script
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        run: python breake.py
+        run: python break.py
