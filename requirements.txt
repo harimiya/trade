@@ -1,5 +1,5 @@
-yfinance
-pandas
+yfinance>=0.2.30
+pandas>=2.0.0
 numpy
 matplotlib
 seaborn
