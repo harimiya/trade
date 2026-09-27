@@ -2,19 +2,19 @@ name: Daily Breakout Bot
 
 on:
   schedule:
-    # 毎日 UTC 17:00 (＝日本時間 翌2:00) に実行
+    # 毎日 UTC 17:00 (＝日本時間 翌朝2:00) に自動実行
     - cron: '0 17 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # 手動実行用ボタン
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4  # ← v4 に更新
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5  # ← v5 に更新
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -23,7 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas yfinance requests openpyxl
 
-      - name: Run script
+      - name: Run Breakout Bot Script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python bot.py
