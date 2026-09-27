@@ -10,100 +10,26 @@ import yfinance as yf
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 
-def get_tse_symbols():
-    """JPX公式から東証全銘柄（プライム・スタンダード・グロース）を取得"""
-    print("--- 1. JPXから東証上場銘柄リストを取得中 ---")
-
-    # JPXの東証上場銘柄一覧Excelの最新URL群（メイン ＋ フォールバック）
-    urls = [
-        "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls",
-        # URL変更時の代替エンドポイント
-        "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html",
-    ]
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-
-    excel_content = None
-
-    # 1. 直接Excelファイルのダウンロードを試行
-    direct_excel_url = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
-    try:
-        res = requests.get(direct_excel_url, headers=headers, timeout=15)
-        if res.status_code == 200:
-            excel_content = res.content
-    except Exception:
-        pass
-
-    # 2. 404等の場合は JPX の一覧ページから最新の .xls リンクを自動解析して取得
-    if not excel_content:
-        print("ℹ️ 直リンク取得失敗のため、JPXトップページから最新Excelリンクを自動検索します...")
-        try:
-            page_url = "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
-            page_res = requests.get(page_url, headers=headers, timeout=15)
-            page_res.raise_for_status()
-
-            # HTML内から data_j.xls または Excelリンクを抽出
-            import re
-            matches = re.findall(r'href="([^"]+\.xls)"', page_res.text)
-            if matches:
-                target_path = matches[0]
-                if not target_path.startswith("http"):
-                    target_url = f"https://www.jpx.co.jp{target_path}"
-                else:
-                    target_url = target_path
-
-                print(f"🔗 最新URLを検出: {target_url}")
-                file_res = requests.get(target_url, headers=headers, timeout=15)
-                file_res.raise_for_status()
-                excel_content = file_res.content
-        except Exception as e:
-            print(f"❌ JPXページ解析エラー: {e}")
-
-    if not excel_content:
-        print("❌ JPXからの銘柄リスト取得に失敗しました。")
-        return [], {}, {}
-
-    try:
-        df = pd.read_excel(excel_content)
-
-        # 市場区分の判定 (プライム・スタンダード・グロース)
-        target_condition = df["市場・商品区分"].astype(str).str.contains(
-            "プライム|スタンダード|グロース", na=False
-        )
-        filtered_df = df[target_condition]
-
-        symbols = []
-        name_map = {}
-        market_map = {}
-
-        for _, row in filtered_df.iterrows():
-            code_str = str(row["コード"]).strip()
-            symbol = f"{code_str}.T"
-
-            symbols.append(symbol)
-            name_map[symbol] = str(row["銘柄名"])
-            market_clean = str(row["市場・商品区分"]).split("（")[0]
-            market_map[symbol] = market_clean
-
-        print(f"✅ 取得完了: 対象銘柄数 = {len(symbols)} 件")
-        return symbols, name_map, market_map
-
-    except Exception as e:
-        print(f"❌ Excelデータの解析エラー: {e}")
-        return [], {}, {}
+def generate_tse_symbols():
+    """
+    東証の銘柄コード（4桁数字＋末尾.T）を動的に生成。
+    JPXの外部ファイルに依存しないため、サイト改変で止まることがありません。
+    """
+    print("--- 1. 東証銘柄リストを生成中 ---")
+    symbols = [f"{code}.T" for code in range(1300, 9999)]
+    print(f"✅ 生成完了: 照会対象スキャン範囲 = {len(symbols)} 件")
+    return symbols
 
 
-def check_breakout(symbols, name_map, market_map, lookback_days=250):
-    """直近1年間（250営業日）の高値更新を判定"""
+def check_breakout(symbols, lookback_days=250):
+    """
+    直近1年間（250営業日）の高値更新を判定
+    """
     print("--- 2. 株価データ取得および新高値判定開始 ---")
     breakout_list = []
 
-    batch_size = 300
+    # 1バッチあたり400銘柄ずつ取得（処理高速化）
+    batch_size = 400
     total = len(symbols)
 
     for i in range(0, total, batch_size):
@@ -113,6 +39,7 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
         )
 
         try:
+            # 過去1年分(1y)のデータを一括取得
             data = yf.download(
                 batch_symbols,
                 period="1y",
@@ -123,6 +50,7 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
 
             for symbol in batch_symbols:
                 try:
+                    # 銘柄データ抽出
                     if len(batch_symbols) == 1:
                         df = data
                     else:
@@ -132,21 +60,25 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
 
                     df = df.dropna(subset=["High", "Close"])
 
+                    # データ数が不足している場合や上場廃止・存在しないコードはスキップ
                     if len(df) < lookback_days:
                         continue
 
+                    # 最新日（直近営業日）のデータ
                     latest_high = float(df["High"].iloc[-1])
                     latest_close = float(df["Close"].iloc[-1])
+
+                    # 過去N日間の最高値（直近営業日を除いた過去データ）
                     past_max_high = float(
                         df["High"].iloc[-lookback_days:-1].max()
                     )
 
-                    if latest_high > past_max_high:
+                    # 【ブレイクアウト判定】最新日の高値が直近250営業日の最高値を上回ったか
+                    if latest_high > past_max_high and past_max_high > 0:
+                        code_str = symbol.replace(".T", "")
                         breakout_list.append(
                             {
-                                "code": symbol.replace(".T", ""),
-                                "name": name_map.get(symbol, "不明"),
-                                "market": market_map.get(symbol, "東証"),
+                                "code": code_str,
                                 "close": round(latest_close, 1),
                                 "latest_high": round(latest_high, 1),
                                 "prev_high": round(past_max_high, 1),
@@ -159,7 +91,7 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
         except Exception as e:
             print(f"⚠️ バッチ処理エラー ({i}~): {e}")
 
-        time.sleep(1)
+        time.sleep(0.5)
 
     print(f"✅ 判定完了: 新高値更新銘柄数 = {len(breakout_list)} 件")
     return breakout_list
@@ -183,13 +115,10 @@ def send_discord_notification(breakout_list):
         }
     else:
         fields = []
-        for item in breakout_list[:25]:
+        for item in breakout_list[:25]:  # Discord表示制限（上限25件）
             fields.append(
                 {
-                    "name": (
-                        f"[{item['code']}] {item['name']}"
-                        f" ({item['market']})"
-                    ),
+                    "name": f"銘柄コード: [{item['code']}]",
                     "value": (
                         f"終値: `{item['close']}円` | 本日高値:"
                         f" `{item['latest_high']}円`\n(過去250日高値:"
@@ -202,10 +131,10 @@ def send_discord_notification(breakout_list):
         embed = {
             "title": f"🚀 【{today_str}】直近1年高値ブレイクアウト通知",
             "description": (
-                "東証全市場の中で、過去250営業日の最高値を更新した銘柄一覧"
+                "東証上場銘柄の中で、過去250営業日の最高値を更新した銘柄一覧"
                 f" (該当: 全 {len(breakout_list)} 銘柄)"
             ),
-            "color": 3066993,
+            "color": 3066993,  # エメラルドグリーン
             "fields": fields,
         }
 
@@ -229,13 +158,6 @@ def send_discord_notification(breakout_list):
 
 
 if __name__ == "__main__":
-    symbols, name_map, market_map = get_tse_symbols()
-
-    if not symbols:
-        print("❌ 銘柄リストが空のため処理を中止します。")
-        sys.exit(1)
-
-    breakouts = check_breakout(
-        symbols, name_map, market_map, lookback_days=250
-    )
+    symbols = generate_tse_symbols()
+    breakouts = check_breakout(symbols, lookback_days=250)
     send_discord_notification(breakouts)
