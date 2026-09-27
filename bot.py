@@ -13,20 +13,65 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 def get_tse_symbols():
     """JPX公式から東証全銘柄（プライム・スタンダード・グロース）を取得"""
     print("--- 1. JPXから東証上場銘柄リストを取得中 ---")
-    url = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+
+    # JPXの東証上場銘柄一覧Excelの最新URL群（メイン ＋ フォールバック）
+    urls = [
+        "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls",
+        # URL変更時の代替エンドポイント
+        "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html",
+    ]
 
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
     }
 
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        res.raise_for_status()
-        df = pd.read_excel(res.content)
+    excel_content = None
 
-        # 市場区分の判定 (表記ブレ対策)
+    # 1. 直接Excelファイルのダウンロードを試行
+    direct_excel_url = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+    try:
+        res = requests.get(direct_excel_url, headers=headers, timeout=15)
+        if res.status_code == 200:
+            excel_content = res.content
+    except Exception:
+        pass
+
+    # 2. 404等の場合は JPX の一覧ページから最新の .xls リンクを自動解析して取得
+    if not excel_content:
+        print("ℹ️ 直リンク取得失敗のため、JPXトップページから最新Excelリンクを自動検索します...")
+        try:
+            page_url = "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
+            page_res = requests.get(page_url, headers=headers, timeout=15)
+            page_res.raise_for_status()
+
+            # HTML内から data_j.xls または Excelリンクを抽出
+            import re
+            matches = re.findall(r'href="([^"]+\.xls)"', page_res.text)
+            if matches:
+                target_path = matches[0]
+                if not target_path.startswith("http"):
+                    target_url = f"https://www.jpx.co.jp{target_path}"
+                else:
+                    target_url = target_path
+
+                print(f"🔗 最新URLを検出: {target_url}")
+                file_res = requests.get(target_url, headers=headers, timeout=15)
+                file_res.raise_for_status()
+                excel_content = file_res.content
+        except Exception as e:
+            print(f"❌ JPXページ解析エラー: {e}")
+
+    if not excel_content:
+        print("❌ JPXからの銘柄リスト取得に失敗しました。")
+        return [], {}, {}
+
+    try:
+        df = pd.read_excel(excel_content)
+
+        # 市場区分の判定 (プライム・スタンダード・グロース)
         target_condition = df["市場・商品区分"].astype(str).str.contains(
             "プライム|スタンダード|グロース", na=False
         )
@@ -37,13 +82,11 @@ def get_tse_symbols():
         market_map = {}
 
         for _, row in filtered_df.iterrows():
-            # 銘柄コード（数字4桁または英数字組合せ）
             code_str = str(row["コード"]).strip()
             symbol = f"{code_str}.T"
 
             symbols.append(symbol)
             name_map[symbol] = str(row["銘柄名"])
-            # 「プライム（内国株式）」等の表記から「（内国株式）」を削除
             market_clean = str(row["市場・商品区分"]).split("（")[0]
             market_map[symbol] = market_clean
 
@@ -51,18 +94,15 @@ def get_tse_symbols():
         return symbols, name_map, market_map
 
     except Exception as e:
-        print(f"❌ JPXからの銘柄リスト取得エラー: {e}")
+        print(f"❌ Excelデータの解析エラー: {e}")
         return [], {}, {}
 
 
 def check_breakout(symbols, name_map, market_map, lookback_days=250):
-    """
-    直近1年間（250営業日）の高値更新を判定
-    """
+    """直近1年間（250営業日）の高値更新を判定"""
     print("--- 2. 株価データ取得および新高値判定開始 ---")
     breakout_list = []
 
-    # 1バッチあたり300銘柄ずつ取得
     batch_size = 300
     total = len(symbols)
 
@@ -73,7 +113,6 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
         )
 
         try:
-            # 過去1年分(1y)のデータを一括取得
             data = yf.download(
                 batch_symbols,
                 period="1y",
@@ -84,7 +123,6 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
 
             for symbol in batch_symbols:
                 try:
-                    # 複数銘柄データ構造から該当銘柄データを抽出
                     if len(batch_symbols) == 1:
                         df = data
                     else:
@@ -94,20 +132,15 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
 
                     df = df.dropna(subset=["High", "Close"])
 
-                    # 1年間（250営業日）データに満たないIPO間もない銘柄等はスキップ
                     if len(df) < lookback_days:
                         continue
 
-                    # 最新日（直近営業日）のデータ
                     latest_high = float(df["High"].iloc[-1])
                     latest_close = float(df["Close"].iloc[-1])
-
-                    # 過去N日間の最高値（直近営業日を除いた過去データ）
                     past_max_high = float(
                         df["High"].iloc[-lookback_days:-1].max()
                     )
 
-                    # 【条件】最新日の高値が直近250営業日の最高値を上回ったか
                     if latest_high > past_max_high:
                         breakout_list.append(
                             {
@@ -126,7 +159,7 @@ def check_breakout(symbols, name_map, market_map, lookback_days=250):
         except Exception as e:
             print(f"⚠️ バッチ処理エラー ({i}~): {e}")
 
-        time.sleep(1)  # サーバー負荷軽減のためのウエイト
+        time.sleep(1)
 
     print(f"✅ 判定完了: 新高値更新銘柄数 = {len(breakout_list)} 件")
     return breakout_list
@@ -149,7 +182,6 @@ def send_discord_notification(breakout_list):
             )
         }
     else:
-        # Discord Embeds制限 (最大25フィールド) に配慮
         fields = []
         for item in breakout_list[:25]:
             fields.append(
@@ -173,7 +205,7 @@ def send_discord_notification(breakout_list):
                 "東証全市場の中で、過去250営業日の最高値を更新した銘柄一覧"
                 f" (該当: 全 {len(breakout_list)} 銘柄)"
             ),
-            "color": 3066993,  # エメラルドグリーン
+            "color": 3066993,
             "fields": fields,
         }
 
