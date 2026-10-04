@@ -1,0 +1,33 @@
+name: Japanese Stock Technical Screener
+
+on:
+  schedule:
+    # UTC 16:00 = JST 翌日 01:00 (毎朝1時)
+    - cron: '0 16 * * *'
+  # 手動実行用 (テスト・動作確認用)
+  workflow_dispatch:
+
+jobs:
+  screen-stocks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリのチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python環境のセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: 依存ライブラリのインストール
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: スクリーニング実行とDiscord通知
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python screener.py
