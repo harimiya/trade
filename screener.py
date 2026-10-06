@@ -7,53 +7,51 @@ import numpy as np
 import yfinance as yf
 from scipy.signal import find_peaks
 
-# ==========================================
-# 設定＆環境変数
-# ==========================================
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 # ==========================================
-# 1. JPX公式銘柄リスト取得（プライム・スタンダード・グロース）
+# 1. JPX銘柄リスト取得
 # ==========================================
 def get_jpx_stock_list():
-    """JPX公式Excelから東証プライム・スタンダード・グロースの4桁銘柄コードを取得"""
     url = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
     headers = {'User-Agent': 'Mozilla/5.0'}
-    
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         df_jpx = pd.read_excel(io.BytesIO(response.content))
-        
-        # 市場・商品区分でフィルタリング
         target_markets = ['プライム（内国株式）', 'スタンダード（内国株式）', 'グロース（内国株式）']
         filtered_df = df_jpx[df_jpx['市場・商品区分'].isin(target_markets)]
-        
-        # 4桁コードのみ抽出 (ETFや5桁文字コードを除外)
-        tickers = []
-        for code in filtered_df['コード']:
-            code_str = str(code).zfill(4)
-            if len(code_str) == 4 and code_str.isdigit():
-                tickers.append(code_str)
-                
+        tickers = [str(code).zfill(4) for code in filtered_df['コード'] if len(str(code).zfill(4)) == 4 and str(code).isdigit()]
         print(f"JPXから {len(tickers)} 銘柄を取得しました。")
         return tickers
     except Exception as e:
-        print(f"銘柄リスト取得エラー: {e}")
-        # フォールバック（主要銘柄等）
+        print(f"JPX銘柄リスト取得失敗: {e}")
+        # テスト用フォールバック
         return ["3110", "7203", "6758", "9984", "6501"]
 
 # ==========================================
-# 2. テクニカル分析＆スクリーニング判定
+# 2. 日証金 貸借取引残高（株不足判定）
+# ==========================================
+def check_japan_net_short(ticker_code):
+    """
+    日証金のWeb API/データから該当銘柄が株不足（売り残 > 買い残 または 逆日歩発生）か確認する関数
+    ※ 簡易判定: 貸借取引の差引残高がマイナス（売り越し）であることを確認
+    """
+    # 実際の実装では日証金サイトから当日データをスクレイピング/CSV解析
+    # ここではテスト用にTrue（通過）としつつ、日東紡(3110)等の株不足条件を判定枠として保持
+    return True
+
+# ==========================================
+# 3. チャート分析＆スクリーニング（日東紡パターン対応）
 # ==========================================
 def analyze_ticker(ticker_code):
     symbol = f"{ticker_code}.T"
     
-    # 過去1年分のデータ取得 (250営業日)
+    # yfinanceデータ取得
     df = yf.download(symbol, period="1y", interval="1d", progress=False)
-    if len(df) < 120:
+    if df.empty or len(df) < 120:
         return None
 
-    # MultiIndexの解除（yfinanceの仕様対策）
+    # MultiIndexの解消（yfinance最新仕様対策）
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
@@ -64,28 +62,27 @@ def analyze_ticker(ticker_code):
     # --- A. ボリンジャーバンド (20日) ---
     sma20 = close.rolling(20).mean()
     std20 = close.rolling(20).std()
-    upper1sigma = sma20 + (1 * std20)
+    upper1sigma = sma20 + std20
     upper2sigma = sma20 + (2 * std20)
     lower2sigma = sma20 - (2 * std20)
     
     bandwidth = (upper2sigma - lower2sigma) / sma20
     
-    # 【判定1】直近10営業日以内にスクイーズ（過去半年の下位25%の狭さ）があったか？
+    # 過去10日以内にスクイーズ（過去120日の中で下位30%以下の狭さ）
     recent_bw = bandwidth.tail(10)
-    hist_bw_threshold = bandwidth.tail(120).quantile(0.25)
-    was_squeezed = (recent_bw <= hist_bw_threshold).any()
+    hist_threshold = bandwidth.tail(120).quantile(0.30)
+    was_squeezed = (recent_bw <= hist_threshold).any()
     
-    # 【判定2】本日の株価が+1σ〜+2σ付近（バンドウォーク初期）に位置しているか？
-    is_bandwalk = close.iloc[-1] >= upper1sigma.iloc[-1]
+    # 直近の価格がSMA20以上（バンドウォーク〜上昇開始トレンド）
+    is_uptrend = close.iloc[-1] >= sma20.iloc[-1]
     
-    if not (was_squeezed and is_bandwalk):
+    if not (was_squeezed and is_uptrend):
         return None
 
-    # --- B. 2番底（ダブルボトム）検出 ---
-    # 過去120日のローカルミニマム（谷）を探す
+    # --- B. 2番底（ダブルボトム）判定 ---
     low_vals = low.tail(120).values
-    # 10日以上離れたProminence(目立ち度)のある谷を抽出
-    peaks, _ = find_peaks(-low_vals, distance=10, prominence=low_vals.std() * 0.3)
+    # 谷（ボトム）を検出
+    peaks, _ = find_peaks(-low_vals, distance=12, prominence=np.nanstd(low_vals) * 0.2)
     
     if len(peaks) < 2:
         return None
@@ -93,12 +90,8 @@ def analyze_ticker(ticker_code):
     l1_idx, l2_idx = peaks[-2], peaks[-1]
     l1_val, l2_val = low_vals[l1_idx], low_vals[l2_idx]
     
-    # 2番底の条件：
-    # 1. 2番底(L2)は1番底(L1)よりも時系列で後に来ている
-    # 2. L2 >= L1 * 0.98 (1番底と同等か切り上がっている)
-    # 3. L2 <= L1 * 1.15 (1番底から離れすぎていない)
-    has_double_bottom = (l2_idx > l1_idx) and (l2_val >= l1_val * 0.98) and (l2_val <= l1_val * 1.15)
-    
+    # 2番底が1番底と同等〜切り上がり（1番底の1.18倍以内）
+    has_double_bottom = (l2_idx > l1_idx) and (l2_val >= l1_val * 0.95) and (l2_val <= l1_val * 1.18)
     if not has_double_bottom:
         return None
 
@@ -122,17 +115,18 @@ def analyze_ticker(ticker_code):
     bot_now = float(cloud_bottom.iloc[-1])
     
     status = None
-    # 1. 雲上抜け直後
     if c_now > top_now and c_prev <= top_now:
         status = "【雲上抜け直後】🚀"
-    # 2. 雲侵入中（日東紡 9/30のパターン）
     elif bot_now <= c_now <= top_now:
         status = "【雲侵入中】⚡"
-    # 3. 雲直前（雲下限の3%以内に接近）
     elif c_now < bot_now and c_now >= bot_now * 0.97:
         status = "【雲直前（接近）】👀"
 
     if not status:
+        return None
+
+    # --- D. 日証金 株不足チェック ---
+    if not check_japan_net_short(ticker_code):
         return None
 
     return {
@@ -144,15 +138,13 @@ def analyze_ticker(ticker_code):
     }
 
 # ==========================================
-# 3. メイン処理 & Discord通知
+# 4. 実行 & 通知
 # ==========================================
 def send_discord_notification(message):
     if not DISCORD_WEBHOOK_URL:
-        print("Webhook URLが未設定です。以下を出力します：")
+        print("\n--- Discord Notification ---")
         print(message)
         return
-    
-    # Discordの文字数制限(2000文字)対策のため分割送信
     chunks = [message[i:i+1900] for i in range(0, len(message), 1900)]
     for chunk in chunks:
         requests.post(DISCORD_WEBHOOK_URL, json={"content": chunk})
@@ -162,28 +154,36 @@ if __name__ == "__main__":
     tickers = get_jpx_stock_list()
     
     results = []
-    print(f"全 {len(tickers)} 銘柄のスクリーニングを開始します...")
+    print(f"全 {len(tickers)} 銘柄の分析を開始します...")
     
-    for idx, code in enumerate(tickers):
+    # 進捗確認用のカウンタ
+    processed_count = 0
+    
+    for code in tickers:
+        processed_count += 1
+        if processed_count % 100 == 0:
+            print(f"進捗: {processed_count}/{len(tickers)} 銘柄完了...")
+            
         try:
             res = analyze_ticker(code)
             if res:
                 results.append(res)
-                print(f"検出: {code} - {res['status']}")
-            
-            # API負荷軽減のためわずかにウェイト
-            time.sleep(0.1)
+                print(f"★ 該当検知: {code} - {res['status']}")
+            time.sleep(0.05)
         except Exception as e:
+            # エラー内容を出力して原因特定できるようにする
+            print(f"銘柄 {code} でエラーが発生しました: {e}")
             continue
 
-    # 通知メッセージの生成
+    print(f"処理完了。検出数: {len(results)} 件")
+
     if results:
-        msg = f"【日足チャートスクリーニング検知】（ヒット: {len(results)}件）\n"
+        msg = f"【日足チャートスクリーニング検知】（該当: {len(results)}件）\n"
         msg += "----------------------------------------\n"
         for r in results:
             msg += f"■ 銘柄コード: {r['code']}\n"
-            msg += f" 株価: {r['close']:,.1f}円 | ステータス: {r['status']}\n"
+            msg += f" 株価: {r['close']:,.1f}円 | 状態: {r['status']}\n"
             msg += f" (1番底: {r['l1']:,.1f}円 / 2番底: {r['l2']:,.1f}円)\n\n"
         send_discord_notification(msg)
     else:
-        send_discord_notification("【定期スクリーニング実行結果】\n本日の条件に該当する銘柄はありませんでした。")
+        send_discord_notification("【定期スクリーニング完了】\n本日の条件に該当する銘柄はありませんでした。")
