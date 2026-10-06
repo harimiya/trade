@@ -143,54 +143,80 @@ def analyze_df(ticker_code, df):
         df.columns = df.columns.get_level_values(0)
 
     try:
-        close, high, low = df['Close'].dropna(), df['High'].dropna(), df['Low'].dropna()
+        close = df['Close'].dropna()
+        high = df['High'].dropna()
+        low = df['Low'].dropna()
+        volume = df['Volume'].dropna()
+
         if len(close) < 120:
             return None, None
 
-        # ボリンジャーバンド (20)
-        sma20 = close.rolling(20).mean()
-        std20 = close.rolling(20).std()
-        bandwidth = ((sma20 + (2 * std20)) - (sma20 - (2 * std20))) / sma20
-        was_squeezed = (bandwidth.tail(10) <= bandwidth.tail(120).quantile(0.30)).any()
-        if not (was_squeezed and close.iloc[-1] >= sma20.iloc[-1]):
-            return None, None
-
-        # 2番底 (ダブルボトム)
-        low_vals = low.tail(120).values
-        peaks, _ = find_peaks(-low_vals, distance=10, prominence=np.nanstd(low_vals) * 0.2)
-        if len(peaks) < 2:
-            return None, None
-        l1_val, l2_val = low_vals[peaks[-2]], low_vals[peaks[-1]]
-        if not (peaks[-1] > peaks[-2] and l1_val * 0.95 <= l2_val <= l1_val * 1.18):
-            return None, None
-
-        # 一目均衡表
+        # ==========================================
+        # 1. 一目均衡表の計算
+        # ==========================================
         high9, low9 = high.rolling(9).max(), low.rolling(9).min()
         tenkan = (high9 + low9) / 2
         high26, low26 = high.rolling(26).max(), low.rolling(26).min()
         kijun = (high26 + low26) / 2
+        
         senkou_a = ((tenkan + kijun) / 2).shift(26)
         high52, low52 = high.rolling(52).max(), low.rolling(52).min()
         senkou_b = ((high52 + low52) / 2).shift(26)
-        
+
         cloud_top = np.maximum(senkou_a, senkou_b)
         cloud_bottom = np.minimum(senkou_a, senkou_b)
+        cloud_thickness = cloud_top - cloud_bottom  # 雲の厚み
 
-        c_now, c_prev = float(close.iloc[-1]), float(close.iloc[-2])
-        top_now, bot_now = float(cloud_top.iloc[-1]), float(cloud_bottom.iloc[-1])
+        c_now = float(close.iloc[-1])
+        c_prev = float(close.iloc[-2])
+        top_now = float(cloud_top.iloc[-1])
+        bot_now = float(cloud_bottom.iloc[-1])
+
+        # ==========================================
+        # 2. 条件判定（日東紡パターンの厳格フィルタリング）
+        # ==========================================
         
+        # 条件A: 雲が薄くなっていること (直近50日間の雲の平均厚みに対して直近が半分以下)
+        cloud_avg_thick = float(cloud_thickness.tail(50).mean())
+        curr_cloud_thick = float(cloud_thickness.iloc[-1])
+        if cloud_avg_thick == 0 or curr_cloud_thick > cloud_avg_thick * 0.6:
+            return None, None
+
+        # 条件B: 長期底練り・ボラティリティ低下（直近20日間の株価変動幅が直近120日高値の12%以内）
+        range_20 = float(high.tail(20).max() - low.tail(20).min())
+        max_120 = float(high.tail(120).max())
+        if (range_20 / max_120) > 0.12:
+            return None, None
+
+        # 条件C: 出来高の急増（当日の出来高が過去20日平均の1.8倍以上）
+        vol_sma20 = float(volume.tail(20).iloc[:-1].mean())
+        vol_now = float(volume.iloc[-1])
+        if vol_sma20 == 0 or vol_now < vol_sma20 * 1.8:
+            return None, None
+
+        # 条件D: 雲上抜け、または雲の下限から急浮上して雲をブレイク初動
         status = None
         if c_now > top_now and c_prev <= top_now:
-            status = "【雲上抜け直後】🚀"
-        elif bot_now <= c_now <= top_now:
-            status = "【雲侵入中】⚡"
-        elif c_now < bot_now and c_now >= bot_now * 0.97:
-            status = "【雲直前（接近）】👀"
-
+            status = "【雲上抜けブレイク】🚀"
+        elif bot_now <= c_now <= top_now and c_now >= float(tenkan.iloc[-1]) and c_now >= float(kijun.iloc[-1]):
+            status = "【底練り＆雲突破初動】⚡"
+        
         if not status:
             return None, None
 
-        result_dict = {"code": ticker_code, "close": c_now, "status": status, "l1": float(l1_val), "l2": float(l2_val)}
+        # 2番底の算出（通知用データ）
+        low_vals = low.tail(120).values
+        peaks, _ = find_peaks(-low_vals, distance=10, prominence=np.nanstd(low_vals) * 0.2)
+        l1_val = low_vals[peaks[-2]] if len(peaks) >= 2 else low_vals[-1]
+        l2_val = low_vals[peaks[-1]] if len(peaks) >= 2 else low_vals[-1]
+
+        result_dict = {
+            "code": ticker_code,
+            "close": c_now,
+            "status": status,
+            "l1": float(l1_val),
+            "l2": float(l2_val)
+        }
         return result_dict, df
 
     except Exception:
