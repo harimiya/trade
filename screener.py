@@ -165,7 +165,7 @@ def analyze_df(ticker_code, df):
 
         cloud_top = np.maximum(senkou_a, senkou_b)
         cloud_bottom = np.minimum(senkou_a, senkou_b)
-        cloud_thickness = cloud_top - cloud_bottom  # 雲の厚み
+        cloud_thickness = cloud_top - cloud_bottom
 
         c_now = float(close.iloc[-1])
         c_prev = float(close.iloc[-2])
@@ -173,28 +173,28 @@ def analyze_df(ticker_code, df):
         bot_now = float(cloud_bottom.iloc[-1])
 
         # ==========================================
-        # 2. 条件判定（日東紡パターンの厳格フィルタリング）
+        # 2. 条件判定（調整版）
         # ==========================================
         
-        # 条件A: 雲が薄くなっていること (直近50日間の雲の平均厚みに対して直近が半分以下)
+        # 条件A: 雲が薄くなっていること（直近の雲の厚みが過去50日平均の70%以下）
         cloud_avg_thick = float(cloud_thickness.tail(50).mean())
         curr_cloud_thick = float(cloud_thickness.iloc[-1])
-        if cloud_avg_thick == 0 or curr_cloud_thick > cloud_avg_thick * 0.6:
+        if cloud_avg_thick == 0 or curr_cloud_thick > cloud_avg_thick * 0.7:
             return None, None
 
-        # 条件B: 長期底練り・ボラティリティ低下（直近20日間の株価変動幅が直近120日高値の12%以内）
+        # 条件B: 底練り・もみ合い（直近20日間のレンジが120日高値の15%以内）
         range_20 = float(high.tail(20).max() - low.tail(20).min())
         max_120 = float(high.tail(120).max())
-        if (range_20 / max_120) > 0.12:
+        if (range_20 / max_120) > 0.15:
             return None, None
 
-        # 条件C: 出来高の急増（当日の出来高が過去20日平均の1.8倍以上）
+        # 条件C: 出来高増加傾向（当日の出来高が直近20日平均の1.3倍以上）
         vol_sma20 = float(volume.tail(20).iloc[:-1].mean())
         vol_now = float(volume.iloc[-1])
-        if vol_sma20 == 0 or vol_now < vol_sma20 * 1.8:
+        if vol_sma20 == 0 or vol_now < vol_sma20 * 1.3:
             return None, None
 
-        # 条件D: 雲上抜け、または雲の下限から急浮上して雲をブレイク初動
+        # 条件D: 雲上抜けまたは雲内への進入＋転換線・基準線の上位置
         status = None
         if c_now > top_now and c_prev <= top_now:
             status = "【雲上抜けブレイク】🚀"
