@@ -146,7 +146,6 @@ def analyze_df(ticker_code, df):
         close = df['Close'].dropna()
         high = df['High'].dropna()
         low = df['Low'].dropna()
-        volume = df['Volume'].dropna()
 
         if len(close) < 120:
             return None, None
@@ -156,6 +155,7 @@ def analyze_df(ticker_code, df):
         # ==========================================
         high9, low9 = high.rolling(9).max(), low.rolling(9).min()
         tenkan = (high9 + low9) / 2
+        
         high26, low26 = high.rolling(26).max(), low.rolling(26).min()
         kijun = (high26 + low26) / 2
         
@@ -165,43 +165,42 @@ def analyze_df(ticker_code, df):
 
         cloud_top = np.maximum(senkou_a, senkou_b)
         cloud_bottom = np.minimum(senkou_a, senkou_b)
-        cloud_thickness = cloud_top - cloud_bottom
 
         c_now = float(close.iloc[-1])
         c_prev = float(close.iloc[-2])
+        
         top_now = float(cloud_top.iloc[-1])
         bot_now = float(cloud_bottom.iloc[-1])
+        top_prev = float(cloud_top.iloc[-2])
+
+        tenkan_now = float(tenkan.iloc[-1])
+        kijun_now = float(kijun.iloc[-1])
 
         # ==========================================
-        # 2. 条件判定（調整版）
+        # 2. 条件判定（日東紡パターンの核に絞り込み）
         # ==========================================
         
-        # 条件A: 雲が薄くなっていること（直近の雲の厚みが過去50日平均の70%以下）
-        cloud_avg_thick = float(cloud_thickness.tail(50).mean())
-        curr_cloud_thick = float(cloud_thickness.iloc[-1])
-        if cloud_avg_thick == 0 or curr_cloud_thick > cloud_avg_thick * 0.7:
+        # 条件1: 転換線が基準線以上（上昇トレンドの芽がある）
+        if tenkan_now < kijun_now:
             return None, None
 
-        # 条件B: 底練り・もみ合い（直近20日間のレンジが120日高値の15%以内）
-        range_20 = float(high.tail(20).max() - low.tail(20).min())
-        max_120 = float(high.tail(120).max())
-        if (range_20 / max_120) > 0.15:
-            return None, None
-
-        # 条件C: 出来高増加傾向（当日の出来高が直近20日平均の1.3倍以上）
-        vol_sma20 = float(volume.tail(20).iloc[:-1].mean())
-        vol_now = float(volume.iloc[-1])
-        if vol_sma20 == 0 or vol_now < vol_sma20 * 1.3:
-            return None, None
-
-        # 条件D: 雲上抜けまたは雲内への進入＋転換線・基準線の上位置
+        # 条件2: 雲の位置関係（以下のいずれかに該当）
+        # A) 雲を上抜けた直後（前日は雲以下、当日雲上）
+        # B) 雲のなかに侵入中、かつ直近で下値固め（安値から回復）している
         status = None
-        if c_now > top_now and c_prev <= top_now:
+        if c_now > top_now and c_prev <= top_prev:
             status = "【雲上抜けブレイク】🚀"
-        elif bot_now <= c_now <= top_now and c_now >= float(tenkan.iloc[-1]) and c_now >= float(kijun.iloc[-1]):
-            status = "【底練り＆雲突破初動】⚡"
+        elif bot_now <= c_now <= top_now:
+            status = "【底練り＆雲侵入初動】⚡"
         
         if not status:
+            return None, None
+
+        # 条件3: 過去60日間に大きな下落を経験している（高値からの調整後の底練り判定）
+        max_60 = float(high.tail(60).max())
+        min_60 = float(low.tail(60).min())
+        # 高値から20%以上の調整を経てからの戻り局面であること
+        if (max_60 - min_60) / max_60 < 0.20:
             return None, None
 
         # 2番底の算出（通知用データ）
@@ -221,7 +220,6 @@ def analyze_df(ticker_code, df):
 
     except Exception:
         return None, None
-
 # ==========================================
 # 5. メイン処理
 # ==========================================
