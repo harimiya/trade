@@ -2,8 +2,8 @@ name: Daily Stock Screener
 
 on:
   schedule:
-    # 毎週月〜金曜日の JST 16:30（UTC 07:30）に自動実行
-    - cron: '30 7 * * 1-5'
+    # 毎週月〜金曜日の JST 01:00（UTC 16:00）に自動実行
+    - cron: '0 16 * * 1-5'
   workflow_dispatch: # Actions画面からの手動実行ボタンを有効化
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # 安定版Python
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
