@@ -22,7 +22,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yfinance pandas numpy requests pandas-ta scipy openpyxl beautifulsoup4 lxml matplotlib mplfinance
+          pip install "pandas<3.0.0" "numpy<2.0.0" yfinance requests scipy openpyxl beautifulsoup4 lxml matplotlib mplfinance
 
       - name: Run Screener Script
         env:
