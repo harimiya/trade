@@ -24,6 +24,7 @@ jobs:
           pip install yfinance pandas numpy requests pandas-ta
 
       - name: Run Screener Script
+        timeout-minutes: 90 # タイムアウト時間を指定
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python screener.py
