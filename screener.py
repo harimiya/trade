@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import json
 from scipy.signal import find_peaks
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -15,7 +16,7 @@ from playwright.sync_api import sync_playwright
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 # ==========================================
-# 2. 株探の「一目均衡表」チャート画像の撮影
+# 2. 株探の「一目均衡表」チャート画像の撮影（要素ロード待機を強化）
 # ==========================================
 def capture_kabutan_chart(ticker_code):
     """株探のチャートページを開き、一目均衡表を選択した状態の画像キャプチャを取得"""
@@ -24,25 +25,24 @@ def capture_kabutan_chart(ticker_code):
     
     try:
         with sync_playwright() as p:
-            # ヘッドレ スブラウザ起動
+            # ヘッドレスブラウザ起動
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1280, "height": 960})
             
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            # 株探へアクセス
+            page.goto(url, wait_until="networkidle", timeout=30000)
             
-            # 「一目均衡表」のラジオボタンをクリック（一目均衡表の値: 'ichimoku' やテキスト指定）
-            # 株探のラジオボタン要素を指定
-            ichimoku_radio = page.locator("input[type='radio'][value='ichimoku']").first
-            if ichimoku_radio.is_visible():
-                ichimoku_radio.click()
+            # 「一目均衡表」ラジオボタン（id='ichimoku' または value='ichimoku'）をクリック
+            ichimoku_btn = page.locator("#ichimoku, input[value='ichimoku']").first
+            if ichimoku_btn.is_visible():
+                ichimoku_btn.click()
             else:
-                # テキストラベルから選択を試みる
                 page.locator("label", has_text="一目均衡表").click()
                 
-            time.sleep(1.5) # チャート再描画の待機
+            # チャート（Canvas/SVG）が再描画されるのを確実に待つ
+            time.sleep(2.5)
             
-            # チャート表示部分要素の切り出し（画面全体またはチャート領域）
-            # #stock_chart または .chart_box などの領域を取得
+            # チャート部分(#stock_chart)をキャプチャ。存在しなければ画面上部を取得
             chart_element = page.locator("#stock_chart").first
             if chart_element.is_visible():
                 chart_element.screenshot(path=image_path)
@@ -56,30 +56,36 @@ def capture_kabutan_chart(ticker_code):
         return None
 
 # ==========================================
-# 3. Discordへの画像付きメッセージ送信
+# 3. Discordへの画像付きメッセージ送信（Discord Webhook仕様に厳密対応）
 # ==========================================
 def send_discord_notification_with_image(message, image_path=None):
-    """Discord Webhookにテキストおよび画像を添付して送信"""
+    """Discord Webhookにテキストおよび画像を正しい形式で添付送信"""
     if not DISCORD_WEBHOOK_URL:
         print("\n--- Discord Notification ---")
         print(message)
         return
 
-    payload = {"content": message}
-    
-    if image_path and os.path.exists(image_path):
-        with open(image_path, "rb") as f:
+    try:
+        if image_path and os.path.exists(image_path):
+            # 画像添付時は payload_json を利用してテキストとファイルを同時に送る
+            payload = {"content": message}
             files = {
-                "file": (os.path.basename(image_path), f, "image/png")
+                "payload_json": (None, json.dumps(payload), "application/json"),
+                "file": (os.path.basename(image_path), open(image_path, "rb"), "image/png")
             }
-            requests.post(DISCORD_WEBHOOK_URL, data=payload, files=files)
-        # 送信後に一時画像を削除
-        try:
-            os.remove(image_path)
-        except Exception:
-            pass
-    else:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload)
+            res = requests.post(DISCORD_WEBHOOK_URL, files=files)
+            files["file"][1].close() # ファイルクローズ
+            
+            # 送信成功後に画像を削除
+            if res.status_code in [200, 204]:
+                os.remove(image_path)
+            else:
+                print(f"Discord送信エラー ({res.status_code}): {res.text}")
+        else:
+            # 画像がない場合は通常送信
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
+    except Exception as e:
+        print(f"送信失敗: {e}")
 
 # ==========================================
 # 4. JPX銘柄取得 & 分析ロジック（前述と同様）
