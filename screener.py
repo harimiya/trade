@@ -308,12 +308,27 @@ if __name__ == "__main__":
     print(f"\n=== 全処理完了。検知件数: {len(results)} 件 ===")
 
     # 結果をタイル画像にまとめてDiscordへ1回通知
+print(f"\n=== 全処理完了。検知件数: {len(results)} 件 ===")
+
     if results:
-        summary_msg = f"【日足チャートスクリーニング検知】（合計: {len(results)}件）\n"
-        for r, _ in results:
-            summary_msg += f"・`{r['code']}` : {r['status']} (株価: {r['close']:,.1f}円)\n"
+        # 1. 2,000文字制限を超えないよう、テキストサマリーを作成（最大30件まで詳細表示、以降は件数のみ）
+        summary_msg = f"【日日足チャートスクリーニング検知】（合計: {len(results)}件）\n"
+        
+        display_results = results[:30] # 多すぎる場合は上位30件までリスト表示
+        for r, _ in display_results:
+            summary_msg += f"・`{r['code']}` : {r['status']} ({r['close']:,.1f}円)\n"
             
+        if len(results) > 30:
+            summary_msg += f"\n...他 {len(results) - 30} 件の銘柄が検知されました。"
+            
+        # 安全のため文字数チェック（念のため1900文字以内で切り詰め）
+        if len(summary_msg) > 1900:
+            summary_msg = summary_msg[:1900] + "\n...(文字数制限のため一部省略)"
+
         print("ヒットした全銘柄のタイル画像を生成中...")
+        
+        # ※件数が多すぎる（例: 50件超など）とタイル画像が巨大化するため、
+        # 必要に応じて上位のみタイル化するか、そのまま生成します
         tile_img_path = generate_tile_chart(results)
         
         send_discord_notification_with_image(summary_msg, tile_img_path)
