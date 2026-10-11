@@ -310,14 +310,16 @@ if __name__ == "__main__":
 
     print(f"\n=== 全処理完了。検知件数: {len(results)} 件 ===")
 
-    # 結果の送信処理（文字数制限対策済み）
+# 結果の送信処理（株探リンク付き）
     if results:
         summary_msg = f"【日足チャートスクリーニング検知】（合計: {len(results)}件）\n"
         
-        # 2000文字制限に引っかからないよう、最大30件までテキスト列記し、超過分は省略
+        # 2000文字制限に引っかからないよう、最大30件まで詳細リンク付きで表示
         display_results = results[:30]
         for r, _ in display_results:
-            summary_msg += f"・`{r['code']}` : {r['status']} ({r['close']:,.1f}円)\n"
+            code = r['code']
+            kabutan_url = f"https://kabutan.jp/stock/?code={code}"
+            summary_msg += f"・[`{code}`]({kabutan_url}) : {r['status']} ({r['close']:,.1f}円)\n"
             
         if len(results) > 30:
             summary_msg += f"\n...他 {len(results) - 30} 件の銘柄が検知されました。"
