@@ -25,7 +25,6 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 # 2. JPX公式一覧ページから最新の全銘柄を取得
 # ==========================================
 def get_jpx_stock_list():
-    """JPXの公式一覧ページから動的に最新のExcelリンクを取得して東証銘柄（プライム・スタンダード・グロース）コードを取得"""
     page_url = "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
     base_url = "https://www.jpx.co.jp"
     headers = {
@@ -71,10 +70,9 @@ def get_jpx_stock_list():
         return ["3110", "6146", "7203", "6758", "9984", "6501", "6857", "8035", "7011"]
 
 # ==========================================
-# 3. テクニカル指標・チャートパターン判定
+# 3. テクニカル指標・チャートパターン判定（出来高フィルター追加）
 # ==========================================
 def analyze_df(ticker_code, df):
-    """単一銘柄のDataFrameを受け取り、日東紡パターン（下落後の底練り・雲侵入/上抜け・転換線>基準線）を判定"""
     if df is None or df.empty or len(df) < 120:
         return None, None
 
@@ -85,6 +83,7 @@ def analyze_df(ticker_code, df):
         close = df['Close'].dropna()
         high = df['High'].dropna()
         low = df['Low'].dropna()
+        volume = df['Volume'].dropna()
 
         if len(close) < 120:
             return None, None
@@ -133,6 +132,12 @@ def analyze_df(ticker_code, df):
         if (max_60 - min_60) / max_60 < 0.20:
             return None, None
 
+        # 条件4: 出来高の増加（当日の出来高が過去30日平均の1.2倍以上）
+        vol_sma30 = float(volume.tail(30).iloc[:-1].mean())
+        vol_now = float(volume.iloc[-1])
+        if vol_sma30 == 0 or vol_now < vol_sma30 * 1.2:
+            return None, None
+
         # 2番底の算出（通知テキスト用）
         low_vals = low.tail(120).values
         peaks, _ = find_peaks(-low_vals, distance=10, prominence=np.nanstd(low_vals) * 0.2)
@@ -155,7 +160,6 @@ def analyze_df(ticker_code, df):
 # 4. 個別チャート画像生成 & タイル（グリッド）合成
 # ==========================================
 def create_chart_image_object(ticker_code, res_dict, df):
-    """個別の銘柄チャートを描画し、PILのImageオブジェクトとして返す"""
     temp_path = f"temp_{ticker_code}.png"
     try:
         df_chart = df.tail(120).copy()
@@ -163,10 +167,10 @@ def create_chart_image_object(ticker_code, res_dict, df):
         
         high9, low9 = high.rolling(9).max(), low.rolling(9).min()
         tenkan = (high9 + low9) / 2
-        high26, low26 = high.rolling(26).max(), low.rolling(26).min()
+        high26, low26 = high.rolling(26).max(), high.rolling(26).min()
         kijun = (high26 + low26) / 2
         senkou_a = ((tenkan + kijun) / 2).shift(26)
-        high52, low52 = high.rolling(52).max(), low.rolling(52).min()
+        high52, low52 = high.rolling(52).max(), high.rolling(52).min()
         senkou_b = ((high52 + low52) / 2).shift(26)
         
         addplots = [
@@ -207,7 +211,6 @@ def create_chart_image_object(ticker_code, res_dict, df):
         return None
 
 def generate_tile_chart(results):
-    """ヒットした複数銘柄の画像を方眼紙風のタイル画像（1枚）に結合する"""
     valid_images = []
     for r, df_matched in results:
         img = create_chart_image_object(r['code'], r, df_matched)
@@ -307,28 +310,22 @@ if __name__ == "__main__":
 
     print(f"\n=== 全処理完了。検知件数: {len(results)} 件 ===")
 
-    # 結果をタイル画像にまとめてDiscordへ1回通知
-print(f"\n=== 全処理完了。検知件数: {len(results)} 件 ===")
-
+    # 結果の送信処理（文字数制限対策済み）
     if results:
-        # 1. 2,000文字制限を超えないよう、テキストサマリーを作成（最大30件まで詳細表示、以降は件数のみ）
-        summary_msg = f"【日日足チャートスクリーニング検知】（合計: {len(results)}件）\n"
+        summary_msg = f"【日足チャートスクリーニング検知】（合計: {len(results)}件）\n"
         
-        display_results = results[:30] # 多すぎる場合は上位30件までリスト表示
+        # 2000文字制限に引っかからないよう、最大30件までテキスト列記し、超過分は省略
+        display_results = results[:30]
         for r, _ in display_results:
             summary_msg += f"・`{r['code']}` : {r['status']} ({r['close']:,.1f}円)\n"
             
         if len(results) > 30:
             summary_msg += f"\n...他 {len(results) - 30} 件の銘柄が検知されました。"
             
-        # 安全のため文字数チェック（念のため1900文字以内で切り詰め）
         if len(summary_msg) > 1900:
             summary_msg = summary_msg[:1900] + "\n...(文字数制限のため一部省略)"
 
         print("ヒットした全銘柄のタイル画像を生成中...")
-        
-        # ※件数が多すぎる（例: 50件超など）とタイル画像が巨大化するため、
-        # 必要に応じて上位のみタイル化するか、そのまま生成します
         tile_img_path = generate_tile_chart(results)
         
         send_discord_notification_with_image(summary_msg, tile_img_path)
